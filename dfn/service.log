@@ -1,0 +1,613 @@
+[2025-12-15 08:02:00,226] ERROR in http_service: Processing error: deepFilter invocation failed. Tried:
+
+['deepFilter', 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\dfn_e880eb98b4370390\\input_audio.wav', '-o', 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\dfn_e880eb98b4370390\\output\\_tmp\\df1_out']
+CalledProcessError: Command '['deepFilter', 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\dfn_e880eb98b4370390\\input_audio.wav', '-o', 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\dfn_e880eb98b4370390\\output\\_tmp\\df1_out']' returned non-zero exit status 1.
+STDOUT:
+2025-12-15 07:59:30 | INFO     | DF | Running on torch 2.5.1
+2025-12-15 07:59:30 | INFO     | DF | Running on host rtx4060ti
+2025-12-15 07:59:30 | INFO     | DF | Loading model settings of DeepFilterNet3
+2025-12-15 07:59:30 | INFO     | DF | Using DeepFilterNet3 model at C:\Users\Administrator\AppData\Local\DeepFilterNet\DeepFilterNet\Cache\DeepFilterNet3
+2025-12-15 07:59:30 | INFO     | DF | Initializing model `deepfilternet3`
+2025-12-15 07:59:30 | INFO     | DF | Found checkpoint C:\Users\Administrator\AppData\Local\DeepFilterNet\DeepFilterNet\Cache\DeepFilterNet3\checkpoints\model_120.ckpt.best with epoch 120
+2025-12-15 07:59:30 | INFO     | DF | Running on device cuda:0
+2025-12-15 07:59:30 | INFO     | DF | Model loaded
+
+STDERR:
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\io.py:9: UserWarning: `torchaudio.backend.common.AudioMetaData` has been moved to `torchaudio.AudioMetaData`. Please update the import path.
+  from torchaudio.backend.common import AudioMetaData
+fatal: not a git repository (or any of the parent directories): .git
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\checkpoint.py:77: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+  latest = torch.load(latest, map_location="cpu")
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\io.py:9: UserWarning: `torchaudio.backend.common.AudioMetaData` has been moved to `torchaudio.AudioMetaData`. Please update the import path.
+  from torchaudio.backend.common import AudioMetaData
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\io.py:9: UserWarning: `torchaudio.backend.common.AudioMetaData` has been moved to `torchaudio.AudioMetaData`. Please update the import path.
+  from torchaudio.backend.common import AudioMetaData
+2025-12-15 07:59:53.117 | WARNING  | df.logger:warn_once:75 - Audio sampling rate does not match model sampling rate (44100, 48000). Resampling...
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\io.py:106: UserWarning: "sinc_interpolation" resampling method name is being deprecated and replaced by "sinc_interp_hann" in the next release. The default behavior remains unchanged.
+  return ta_resample(audio, orig_sr, new_sr, **params)
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\conv.py:549: UserWarning: cuDNN cannot be used for large non-batch-splittable convolutions if the V8 API is not enabled or before cuDNN version 9.3+. Consider upgrading cuDNN and/or enabling the V8 API for better efficiency. (Triggered internally at C:\actions-runner\_work\pytorch\pytorch\builder\windows\pytorch\aten\src\ATen\native\Convolution.cpp:432.)
+  return F.conv2d(
+Traceback (most recent call last):
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\runpy.py", line 196, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\runpy.py", line 86, in _run_code
+    exec(code, run_globals)
+  File "C:\Users\Administrator\.conda\envs\dfn\Scripts\deepFilter.exe\__main__.py", line 6, in <module>
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\enhance.py", line 378, in run
+    main(args)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\enhance.py", line 78, in main
+    audio = enhance(
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\utils\_contextlib.py", line 116, in decorate_context
+    return func(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\enhance.py", line 235, in enhance
+    enhanced = model(spec.clone(), erb_feat, spec_feat)[0].cpu()
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\deepfilternet3.py", line 411, in forward
+    e0, e1, e2, e3, emb, c0, lsnr = self.enc(feat_erb, feat_spec)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\deepfilternet3.py", line 177, in forward
+    c0 = self.df_conv0(feat_spec)  # [B, C, T, Fc]
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\container.py", line 250, in forward
+    input = module(input)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\conv.py", line 554, in forward
+    return self._conv_forward(input, self.weight, self.bias)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\conv.py", line 549, in _conv_forward
+    return F.conv2d(
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 17.07 GiB. GPU 0 has a total capacity of 16.00 GiB of which 0 bytes is free. Of the allocated memory 19.04 GiB is allocated by PyTorch, and 386.84 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+
+
+['deepFilter', 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\dfn_e880eb98b4370390\\input_audio.wav', '--output-dir', 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\dfn_e880eb98b4370390\\output\\_tmp\\df1_out']
+CalledProcessError: Command '['deepFilter', 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\dfn_e880eb98b4370390\\input_audio.wav', '--output-dir', 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\dfn_e880eb98b4370390\\output\\_tmp\\df1_out']' returned non-zero exit status 1.
+STDOUT:
+2025-12-15 08:00:46 | INFO     | DF | Running on torch 2.5.1
+2025-12-15 08:00:46 | INFO     | DF | Running on host rtx4060ti
+2025-12-15 08:00:46 | INFO     | DF | Loading model settings of DeepFilterNet3
+2025-12-15 08:00:46 | INFO     | DF | Using DeepFilterNet3 model at C:\Users\Administrator\AppData\Local\DeepFilterNet\DeepFilterNet\Cache\DeepFilterNet3
+2025-12-15 08:00:46 | INFO     | DF | Initializing model `deepfilternet3`
+2025-12-15 08:00:46 | INFO     | DF | Found checkpoint C:\Users\Administrator\AppData\Local\DeepFilterNet\DeepFilterNet\Cache\DeepFilterNet3\checkpoints\model_120.ckpt.best with epoch 120
+2025-12-15 08:00:46 | INFO     | DF | Running on device cuda:0
+2025-12-15 08:00:46 | INFO     | DF | Model loaded
+
+STDERR:
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\io.py:9: UserWarning: `torchaudio.backend.common.AudioMetaData` has been moved to `torchaudio.AudioMetaData`. Please update the import path.
+  from torchaudio.backend.common import AudioMetaData
+fatal: not a git repository (or any of the parent directories): .git
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\checkpoint.py:77: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+  latest = torch.load(latest, map_location="cpu")
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\io.py:9: UserWarning: `torchaudio.backend.common.AudioMetaData` has been moved to `torchaudio.AudioMetaData`. Please update the import path.
+  from torchaudio.backend.common import AudioMetaData
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\io.py:9: UserWarning: `torchaudio.backend.common.AudioMetaData` has been moved to `torchaudio.AudioMetaData`. Please update the import path.
+  from torchaudio.backend.common import AudioMetaData
+2025-12-15 08:01:09.148 | WARNING  | df.logger:warn_once:75 - Audio sampling rate does not match model sampling rate (44100, 48000). Resampling...
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\io.py:106: UserWarning: "sinc_interpolation" resampling method name is being deprecated and replaced by "sinc_interp_hann" in the next release. The default behavior remains unchanged.
+  return ta_resample(audio, orig_sr, new_sr, **params)
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\conv.py:549: UserWarning: cuDNN cannot be used for large non-batch-splittable convolutions if the V8 API is not enabled or before cuDNN version 9.3+. Consider upgrading cuDNN and/or enabling the V8 API for better efficiency. (Triggered internally at C:\actions-runner\_work\pytorch\pytorch\builder\windows\pytorch\aten\src\ATen\native\Convolution.cpp:432.)
+  return F.conv2d(
+Traceback (most recent call last):
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\runpy.py", line 196, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\runpy.py", line 86, in _run_code
+    exec(code, run_globals)
+  File "C:\Users\Administrator\.conda\envs\dfn\Scripts\deepFilter.exe\__main__.py", line 6, in <module>
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\enhance.py", line 378, in run
+    main(args)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\enhance.py", line 78, in main
+    audio = enhance(
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\utils\_contextlib.py", line 116, in decorate_context
+    return func(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\enhance.py", line 235, in enhance
+    enhanced = model(spec.clone(), erb_feat, spec_feat)[0].cpu()
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\deepfilternet3.py", line 411, in forward
+    e0, e1, e2, e3, emb, c0, lsnr = self.enc(feat_erb, feat_spec)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\deepfilternet3.py", line 177, in forward
+    c0 = self.df_conv0(feat_spec)  # [B, C, T, Fc]
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\container.py", line 250, in forward
+    input = module(input)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\conv.py", line 554, in forward
+    return self._conv_forward(input, self.weight, self.bias)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\conv.py", line 549, in _conv_forward
+    return F.conv2d(
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 17.07 GiB. GPU 0 has a total capacity of 16.00 GiB of which 0 bytes is free. Of the allocated memory 19.04 GiB is allocated by PyTorch, and 386.84 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+
+Traceback (most recent call last):
+  File "C:\work\dfn\http_service.py", line 133, in process_audio
+    try:
+  File "C:\work\dfn\dfn_2stage.py", line 219, in main
+    run_deepfilter_to_file(args.inp, stage1_speech, outdir=df1_dir, timeout_s=args.timeout)
+  File "C:\work\dfn\dfn_2stage.py", line 119, in run_deepfilter_to_file
+    raise RuntimeError("deepFilter invocation failed. Tried:\n\n" + msg)
+RuntimeError: deepFilter invocation failed. Tried:
+
+['deepFilter', 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\dfn_e880eb98b4370390\\input_audio.wav', '-o', 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\dfn_e880eb98b4370390\\output\\_tmp\\df1_out']
+CalledProcessError: Command '['deepFilter', 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\dfn_e880eb98b4370390\\input_audio.wav', '-o', 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\dfn_e880eb98b4370390\\output\\_tmp\\df1_out']' returned non-zero exit status 1.
+STDOUT:
+2025-12-15 07:59:30 | INFO     | DF | Running on torch 2.5.1
+2025-12-15 07:59:30 | INFO     | DF | Running on host rtx4060ti
+2025-12-15 07:59:30 | INFO     | DF | Loading model settings of DeepFilterNet3
+2025-12-15 07:59:30 | INFO     | DF | Using DeepFilterNet3 model at C:\Users\Administrator\AppData\Local\DeepFilterNet\DeepFilterNet\Cache\DeepFilterNet3
+2025-12-15 07:59:30 | INFO     | DF | Initializing model `deepfilternet3`
+2025-12-15 07:59:30 | INFO     | DF | Found checkpoint C:\Users\Administrator\AppData\Local\DeepFilterNet\DeepFilterNet\Cache\DeepFilterNet3\checkpoints\model_120.ckpt.best with epoch 120
+2025-12-15 07:59:30 | INFO     | DF | Running on device cuda:0
+2025-12-15 07:59:30 | INFO     | DF | Model loaded
+
+STDERR:
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\io.py:9: UserWarning: `torchaudio.backend.common.AudioMetaData` has been moved to `torchaudio.AudioMetaData`. Please update the import path.
+  from torchaudio.backend.common import AudioMetaData
+fatal: not a git repository (or any of the parent directories): .git
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\checkpoint.py:77: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+  latest = torch.load(latest, map_location="cpu")
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\io.py:9: UserWarning: `torchaudio.backend.common.AudioMetaData` has been moved to `torchaudio.AudioMetaData`. Please update the import path.
+  from torchaudio.backend.common import AudioMetaData
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\io.py:9: UserWarning: `torchaudio.backend.common.AudioMetaData` has been moved to `torchaudio.AudioMetaData`. Please update the import path.
+  from torchaudio.backend.common import AudioMetaData
+2025-12-15 07:59:53.117 | WARNING  | df.logger:warn_once:75 - Audio sampling rate does not match model sampling rate (44100, 48000). Resampling...
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\io.py:106: UserWarning: "sinc_interpolation" resampling method name is being deprecated and replaced by "sinc_interp_hann" in the next release. The default behavior remains unchanged.
+  return ta_resample(audio, orig_sr, new_sr, **params)
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\conv.py:549: UserWarning: cuDNN cannot be used for large non-batch-splittable convolutions if the V8 API is not enabled or before cuDNN version 9.3+. Consider upgrading cuDNN and/or enabling the V8 API for better efficiency. (Triggered internally at C:\actions-runner\_work\pytorch\pytorch\builder\windows\pytorch\aten\src\ATen\native\Convolution.cpp:432.)
+  return F.conv2d(
+Traceback (most recent call last):
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\runpy.py", line 196, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\runpy.py", line 86, in _run_code
+    exec(code, run_globals)
+  File "C:\Users\Administrator\.conda\envs\dfn\Scripts\deepFilter.exe\__main__.py", line 6, in <module>
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\enhance.py", line 378, in run
+    main(args)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\enhance.py", line 78, in main
+    audio = enhance(
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\utils\_contextlib.py", line 116, in decorate_context
+    return func(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\enhance.py", line 235, in enhance
+    enhanced = model(spec.clone(), erb_feat, spec_feat)[0].cpu()
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\deepfilternet3.py", line 411, in forward
+    e0, e1, e2, e3, emb, c0, lsnr = self.enc(feat_erb, feat_spec)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\deepfilternet3.py", line 177, in forward
+    c0 = self.df_conv0(feat_spec)  # [B, C, T, Fc]
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\container.py", line 250, in forward
+    input = module(input)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\conv.py", line 554, in forward
+    return self._conv_forward(input, self.weight, self.bias)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\conv.py", line 549, in _conv_forward
+    return F.conv2d(
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 17.07 GiB. GPU 0 has a total capacity of 16.00 GiB of which 0 bytes is free. Of the allocated memory 19.04 GiB is allocated by PyTorch, and 386.84 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+
+
+['deepFilter', 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\dfn_e880eb98b4370390\\input_audio.wav', '--output-dir', 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\dfn_e880eb98b4370390\\output\\_tmp\\df1_out']
+CalledProcessError: Command '['deepFilter', 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\dfn_e880eb98b4370390\\input_audio.wav', '--output-dir', 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\dfn_e880eb98b4370390\\output\\_tmp\\df1_out']' returned non-zero exit status 1.
+STDOUT:
+2025-12-15 08:00:46 | INFO     | DF | Running on torch 2.5.1
+2025-12-15 08:00:46 | INFO     | DF | Running on host rtx4060ti
+2025-12-15 08:00:46 | INFO     | DF | Loading model settings of DeepFilterNet3
+2025-12-15 08:00:46 | INFO     | DF | Using DeepFilterNet3 model at C:\Users\Administrator\AppData\Local\DeepFilterNet\DeepFilterNet\Cache\DeepFilterNet3
+2025-12-15 08:00:46 | INFO     | DF | Initializing model `deepfilternet3`
+2025-12-15 08:00:46 | INFO     | DF | Found checkpoint C:\Users\Administrator\AppData\Local\DeepFilterNet\DeepFilterNet\Cache\DeepFilterNet3\checkpoints\model_120.ckpt.best with epoch 120
+2025-12-15 08:00:46 | INFO     | DF | Running on device cuda:0
+2025-12-15 08:00:46 | INFO     | DF | Model loaded
+
+STDERR:
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\io.py:9: UserWarning: `torchaudio.backend.common.AudioMetaData` has been moved to `torchaudio.AudioMetaData`. Please update the import path.
+  from torchaudio.backend.common import AudioMetaData
+fatal: not a git repository (or any of the parent directories): .git
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\checkpoint.py:77: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+  latest = torch.load(latest, map_location="cpu")
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\io.py:9: UserWarning: `torchaudio.backend.common.AudioMetaData` has been moved to `torchaudio.AudioMetaData`. Please update the import path.
+  from torchaudio.backend.common import AudioMetaData
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\io.py:9: UserWarning: `torchaudio.backend.common.AudioMetaData` has been moved to `torchaudio.AudioMetaData`. Please update the import path.
+  from torchaudio.backend.common import AudioMetaData
+2025-12-15 08:01:09.148 | WARNING  | df.logger:warn_once:75 - Audio sampling rate does not match model sampling rate (44100, 48000). Resampling...
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\io.py:106: UserWarning: "sinc_interpolation" resampling method name is being deprecated and replaced by "sinc_interp_hann" in the next release. The default behavior remains unchanged.
+  return ta_resample(audio, orig_sr, new_sr, **params)
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\conv.py:549: UserWarning: cuDNN cannot be used for large non-batch-splittable convolutions if the V8 API is not enabled or before cuDNN version 9.3+. Consider upgrading cuDNN and/or enabling the V8 API for better efficiency. (Triggered internally at C:\actions-runner\_work\pytorch\pytorch\builder\windows\pytorch\aten\src\ATen\native\Convolution.cpp:432.)
+  return F.conv2d(
+Traceback (most recent call last):
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\runpy.py", line 196, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\runpy.py", line 86, in _run_code
+    exec(code, run_globals)
+  File "C:\Users\Administrator\.conda\envs\dfn\Scripts\deepFilter.exe\__main__.py", line 6, in <module>
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\enhance.py", line 378, in run
+    main(args)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\enhance.py", line 78, in main
+    audio = enhance(
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\utils\_contextlib.py", line 116, in decorate_context
+    return func(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\enhance.py", line 235, in enhance
+    enhanced = model(spec.clone(), erb_feat, spec_feat)[0].cpu()
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\deepfilternet3.py", line 411, in forward
+    e0, e1, e2, e3, emb, c0, lsnr = self.enc(feat_erb, feat_spec)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\deepfilternet3.py", line 177, in forward
+    c0 = self.df_conv0(feat_spec)  # [B, C, T, Fc]
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\container.py", line 250, in forward
+    input = module(input)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\conv.py", line 554, in forward
+    return self._conv_forward(input, self.weight, self.bias)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\conv.py", line 549, in _conv_forward
+    return F.conv2d(
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 17.07 GiB. GPU 0 has a total capacity of 16.00 GiB of which 0 bytes is free. Of the allocated memory 19.04 GiB is allocated by PyTorch, and 386.84 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+
+
+[2025-12-15 08:19:03,248] INFO in http_service: Health check requested
+[2025-12-15 08:21:34,908] ERROR in http_service: Processing error: deepFilter invocation failed. Tried:
+
+['deepFilter', 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\dfn_9f5428c89263787b\\input_audio.wav', '-o', 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\dfn_9f5428c89263787b\\output\\_tmp\\df1_out']
+CalledProcessError: Command '['deepFilter', 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\dfn_9f5428c89263787b\\input_audio.wav', '-o', 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\dfn_9f5428c89263787b\\output\\_tmp\\df1_out']' returned non-zero exit status 1.
+STDOUT:
+2025-12-15 08:19:07 | INFO     | DF | Running on torch 2.5.1
+2025-12-15 08:19:07 | INFO     | DF | Running on host rtx4060ti
+2025-12-15 08:19:07 | INFO     | DF | Loading model settings of DeepFilterNet3
+2025-12-15 08:19:07 | INFO     | DF | Using DeepFilterNet3 model at C:\Users\Administrator\AppData\Local\DeepFilterNet\DeepFilterNet\Cache\DeepFilterNet3
+2025-12-15 08:19:07 | INFO     | DF | Initializing model `deepfilternet3`
+2025-12-15 08:19:07 | INFO     | DF | Found checkpoint C:\Users\Administrator\AppData\Local\DeepFilterNet\DeepFilterNet\Cache\DeepFilterNet3\checkpoints\model_120.ckpt.best with epoch 120
+2025-12-15 08:19:07 | INFO     | DF | Running on device cuda:0
+2025-12-15 08:19:07 | INFO     | DF | Model loaded
+
+STDERR:
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\io.py:9: UserWarning: `torchaudio.backend.common.AudioMetaData` has been moved to `torchaudio.AudioMetaData`. Please update the import path.
+  from torchaudio.backend.common import AudioMetaData
+fatal: not a git repository (or any of the parent directories): .git
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\modules.py:223: UserWarning: expandable_segments not supported on this platform (Triggered internally at C:\actions-runner\_work\pytorch\pytorch\builder\windows\pytorch\c10/cuda/CUDAAllocatorConfig.h:28.)
+  return fb.to(device=get_device())
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\checkpoint.py:77: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+  latest = torch.load(latest, map_location="cpu")
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\io.py:9: UserWarning: `torchaudio.backend.common.AudioMetaData` has been moved to `torchaudio.AudioMetaData`. Please update the import path.
+  from torchaudio.backend.common import AudioMetaData
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\io.py:9: UserWarning: `torchaudio.backend.common.AudioMetaData` has been moved to `torchaudio.AudioMetaData`. Please update the import path.
+  from torchaudio.backend.common import AudioMetaData
+2025-12-15 08:19:30.448 | WARNING  | df.logger:warn_once:75 - Audio sampling rate does not match model sampling rate (44100, 48000). Resampling...
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\io.py:106: UserWarning: "sinc_interpolation" resampling method name is being deprecated and replaced by "sinc_interp_hann" in the next release. The default behavior remains unchanged.
+  return ta_resample(audio, orig_sr, new_sr, **params)
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\conv.py:549: UserWarning: cuDNN cannot be used for large non-batch-splittable convolutions if the V8 API is not enabled or before cuDNN version 9.3+. Consider upgrading cuDNN and/or enabling the V8 API for better efficiency. (Triggered internally at C:\actions-runner\_work\pytorch\pytorch\builder\windows\pytorch\aten\src\ATen\native\Convolution.cpp:432.)
+  return F.conv2d(
+Traceback (most recent call last):
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\runpy.py", line 196, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\runpy.py", line 86, in _run_code
+    exec(code, run_globals)
+  File "C:\Users\Administrator\.conda\envs\dfn\Scripts\deepFilter.exe\__main__.py", line 6, in <module>
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\enhance.py", line 378, in run
+    main(args)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\enhance.py", line 78, in main
+    audio = enhance(
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\utils\_contextlib.py", line 116, in decorate_context
+    return func(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\enhance.py", line 235, in enhance
+    enhanced = model(spec.clone(), erb_feat, spec_feat)[0].cpu()
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\deepfilternet3.py", line 411, in forward
+    e0, e1, e2, e3, emb, c0, lsnr = self.enc(feat_erb, feat_spec)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\deepfilternet3.py", line 177, in forward
+    c0 = self.df_conv0(feat_spec)  # [B, C, T, Fc]
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\container.py", line 250, in forward
+    input = module(input)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\conv.py", line 554, in forward
+    return self._conv_forward(input, self.weight, self.bias)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\conv.py", line 549, in _conv_forward
+    return F.conv2d(
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 17.07 GiB. GPU 0 has a total capacity of 16.00 GiB of which 0 bytes is free. Of the allocated memory 19.04 GiB is allocated by PyTorch, and 386.84 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+
+
+['deepFilter', 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\dfn_9f5428c89263787b\\input_audio.wav', '--output-dir', 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\dfn_9f5428c89263787b\\output\\_tmp\\df1_out']
+CalledProcessError: Command '['deepFilter', 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\dfn_9f5428c89263787b\\input_audio.wav', '--output-dir', 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\dfn_9f5428c89263787b\\output\\_tmp\\df1_out']' returned non-zero exit status 1.
+STDOUT:
+2025-12-15 08:20:23 | INFO     | DF | Running on torch 2.5.1
+2025-12-15 08:20:23 | INFO     | DF | Running on host rtx4060ti
+2025-12-15 08:20:23 | INFO     | DF | Loading model settings of DeepFilterNet3
+2025-12-15 08:20:23 | INFO     | DF | Using DeepFilterNet3 model at C:\Users\Administrator\AppData\Local\DeepFilterNet\DeepFilterNet\Cache\DeepFilterNet3
+2025-12-15 08:20:23 | INFO     | DF | Initializing model `deepfilternet3`
+2025-12-15 08:20:23 | INFO     | DF | Found checkpoint C:\Users\Administrator\AppData\Local\DeepFilterNet\DeepFilterNet\Cache\DeepFilterNet3\checkpoints\model_120.ckpt.best with epoch 120
+2025-12-15 08:20:23 | INFO     | DF | Running on device cuda:0
+2025-12-15 08:20:23 | INFO     | DF | Model loaded
+
+STDERR:
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\io.py:9: UserWarning: `torchaudio.backend.common.AudioMetaData` has been moved to `torchaudio.AudioMetaData`. Please update the import path.
+  from torchaudio.backend.common import AudioMetaData
+fatal: not a git repository (or any of the parent directories): .git
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\modules.py:223: UserWarning: expandable_segments not supported on this platform (Triggered internally at C:\actions-runner\_work\pytorch\pytorch\builder\windows\pytorch\c10/cuda/CUDAAllocatorConfig.h:28.)
+  return fb.to(device=get_device())
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\checkpoint.py:77: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+  latest = torch.load(latest, map_location="cpu")
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\io.py:9: UserWarning: `torchaudio.backend.common.AudioMetaData` has been moved to `torchaudio.AudioMetaData`. Please update the import path.
+  from torchaudio.backend.common import AudioMetaData
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\io.py:9: UserWarning: `torchaudio.backend.common.AudioMetaData` has been moved to `torchaudio.AudioMetaData`. Please update the import path.
+  from torchaudio.backend.common import AudioMetaData
+2025-12-15 08:20:46.918 | WARNING  | df.logger:warn_once:75 - Audio sampling rate does not match model sampling rate (44100, 48000). Resampling...
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\io.py:106: UserWarning: "sinc_interpolation" resampling method name is being deprecated and replaced by "sinc_interp_hann" in the next release. The default behavior remains unchanged.
+  return ta_resample(audio, orig_sr, new_sr, **params)
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\conv.py:549: UserWarning: cuDNN cannot be used for large non-batch-splittable convolutions if the V8 API is not enabled or before cuDNN version 9.3+. Consider upgrading cuDNN and/or enabling the V8 API for better efficiency. (Triggered internally at C:\actions-runner\_work\pytorch\pytorch\builder\windows\pytorch\aten\src\ATen\native\Convolution.cpp:432.)
+  return F.conv2d(
+Traceback (most recent call last):
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\runpy.py", line 196, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\runpy.py", line 86, in _run_code
+    exec(code, run_globals)
+  File "C:\Users\Administrator\.conda\envs\dfn\Scripts\deepFilter.exe\__main__.py", line 6, in <module>
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\enhance.py", line 378, in run
+    main(args)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\enhance.py", line 78, in main
+    audio = enhance(
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\utils\_contextlib.py", line 116, in decorate_context
+    return func(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\enhance.py", line 235, in enhance
+    enhanced = model(spec.clone(), erb_feat, spec_feat)[0].cpu()
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\deepfilternet3.py", line 411, in forward
+    e0, e1, e2, e3, emb, c0, lsnr = self.enc(feat_erb, feat_spec)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\deepfilternet3.py", line 177, in forward
+    c0 = self.df_conv0(feat_spec)  # [B, C, T, Fc]
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\container.py", line 250, in forward
+    input = module(input)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\conv.py", line 554, in forward
+    return self._conv_forward(input, self.weight, self.bias)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\conv.py", line 549, in _conv_forward
+    return F.conv2d(
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 17.07 GiB. GPU 0 has a total capacity of 16.00 GiB of which 0 bytes is free. Of the allocated memory 19.04 GiB is allocated by PyTorch, and 386.84 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+
+Traceback (most recent call last):
+  File "C:\work\dfn\http_service.py", line 134, in process_audio
+    dfn_main()
+  File "C:\work\dfn\dfn_2stage.py", line 222, in main
+    run_deepfilter_to_file(args.inp, stage1_speech, outdir=df1_dir, timeout_s=args.timeout)
+  File "C:\work\dfn\dfn_2stage.py", line 122, in run_deepfilter_to_file
+    raise RuntimeError("deepFilter invocation failed. Tried:\n\n" + msg)
+RuntimeError: deepFilter invocation failed. Tried:
+
+['deepFilter', 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\dfn_9f5428c89263787b\\input_audio.wav', '-o', 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\dfn_9f5428c89263787b\\output\\_tmp\\df1_out']
+CalledProcessError: Command '['deepFilter', 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\dfn_9f5428c89263787b\\input_audio.wav', '-o', 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\dfn_9f5428c89263787b\\output\\_tmp\\df1_out']' returned non-zero exit status 1.
+STDOUT:
+2025-12-15 08:19:07 | INFO     | DF | Running on torch 2.5.1
+2025-12-15 08:19:07 | INFO     | DF | Running on host rtx4060ti
+2025-12-15 08:19:07 | INFO     | DF | Loading model settings of DeepFilterNet3
+2025-12-15 08:19:07 | INFO     | DF | Using DeepFilterNet3 model at C:\Users\Administrator\AppData\Local\DeepFilterNet\DeepFilterNet\Cache\DeepFilterNet3
+2025-12-15 08:19:07 | INFO     | DF | Initializing model `deepfilternet3`
+2025-12-15 08:19:07 | INFO     | DF | Found checkpoint C:\Users\Administrator\AppData\Local\DeepFilterNet\DeepFilterNet\Cache\DeepFilterNet3\checkpoints\model_120.ckpt.best with epoch 120
+2025-12-15 08:19:07 | INFO     | DF | Running on device cuda:0
+2025-12-15 08:19:07 | INFO     | DF | Model loaded
+
+STDERR:
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\io.py:9: UserWarning: `torchaudio.backend.common.AudioMetaData` has been moved to `torchaudio.AudioMetaData`. Please update the import path.
+  from torchaudio.backend.common import AudioMetaData
+fatal: not a git repository (or any of the parent directories): .git
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\modules.py:223: UserWarning: expandable_segments not supported on this platform (Triggered internally at C:\actions-runner\_work\pytorch\pytorch\builder\windows\pytorch\c10/cuda/CUDAAllocatorConfig.h:28.)
+  return fb.to(device=get_device())
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\checkpoint.py:77: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+  latest = torch.load(latest, map_location="cpu")
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\io.py:9: UserWarning: `torchaudio.backend.common.AudioMetaData` has been moved to `torchaudio.AudioMetaData`. Please update the import path.
+  from torchaudio.backend.common import AudioMetaData
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\io.py:9: UserWarning: `torchaudio.backend.common.AudioMetaData` has been moved to `torchaudio.AudioMetaData`. Please update the import path.
+  from torchaudio.backend.common import AudioMetaData
+2025-12-15 08:19:30.448 | WARNING  | df.logger:warn_once:75 - Audio sampling rate does not match model sampling rate (44100, 48000). Resampling...
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\io.py:106: UserWarning: "sinc_interpolation" resampling method name is being deprecated and replaced by "sinc_interp_hann" in the next release. The default behavior remains unchanged.
+  return ta_resample(audio, orig_sr, new_sr, **params)
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\conv.py:549: UserWarning: cuDNN cannot be used for large non-batch-splittable convolutions if the V8 API is not enabled or before cuDNN version 9.3+. Consider upgrading cuDNN and/or enabling the V8 API for better efficiency. (Triggered internally at C:\actions-runner\_work\pytorch\pytorch\builder\windows\pytorch\aten\src\ATen\native\Convolution.cpp:432.)
+  return F.conv2d(
+Traceback (most recent call last):
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\runpy.py", line 196, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\runpy.py", line 86, in _run_code
+    exec(code, run_globals)
+  File "C:\Users\Administrator\.conda\envs\dfn\Scripts\deepFilter.exe\__main__.py", line 6, in <module>
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\enhance.py", line 378, in run
+    main(args)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\enhance.py", line 78, in main
+    audio = enhance(
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\utils\_contextlib.py", line 116, in decorate_context
+    return func(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\enhance.py", line 235, in enhance
+    enhanced = model(spec.clone(), erb_feat, spec_feat)[0].cpu()
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\deepfilternet3.py", line 411, in forward
+    e0, e1, e2, e3, emb, c0, lsnr = self.enc(feat_erb, feat_spec)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\deepfilternet3.py", line 177, in forward
+    c0 = self.df_conv0(feat_spec)  # [B, C, T, Fc]
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\container.py", line 250, in forward
+    input = module(input)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\conv.py", line 554, in forward
+    return self._conv_forward(input, self.weight, self.bias)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\conv.py", line 549, in _conv_forward
+    return F.conv2d(
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 17.07 GiB. GPU 0 has a total capacity of 16.00 GiB of which 0 bytes is free. Of the allocated memory 19.04 GiB is allocated by PyTorch, and 386.84 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+
+
+['deepFilter', 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\dfn_9f5428c89263787b\\input_audio.wav', '--output-dir', 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\dfn_9f5428c89263787b\\output\\_tmp\\df1_out']
+CalledProcessError: Command '['deepFilter', 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\dfn_9f5428c89263787b\\input_audio.wav', '--output-dir', 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\dfn_9f5428c89263787b\\output\\_tmp\\df1_out']' returned non-zero exit status 1.
+STDOUT:
+2025-12-15 08:20:23 | INFO     | DF | Running on torch 2.5.1
+2025-12-15 08:20:23 | INFO     | DF | Running on host rtx4060ti
+2025-12-15 08:20:23 | INFO     | DF | Loading model settings of DeepFilterNet3
+2025-12-15 08:20:23 | INFO     | DF | Using DeepFilterNet3 model at C:\Users\Administrator\AppData\Local\DeepFilterNet\DeepFilterNet\Cache\DeepFilterNet3
+2025-12-15 08:20:23 | INFO     | DF | Initializing model `deepfilternet3`
+2025-12-15 08:20:23 | INFO     | DF | Found checkpoint C:\Users\Administrator\AppData\Local\DeepFilterNet\DeepFilterNet\Cache\DeepFilterNet3\checkpoints\model_120.ckpt.best with epoch 120
+2025-12-15 08:20:23 | INFO     | DF | Running on device cuda:0
+2025-12-15 08:20:23 | INFO     | DF | Model loaded
+
+STDERR:
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\io.py:9: UserWarning: `torchaudio.backend.common.AudioMetaData` has been moved to `torchaudio.AudioMetaData`. Please update the import path.
+  from torchaudio.backend.common import AudioMetaData
+fatal: not a git repository (or any of the parent directories): .git
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\modules.py:223: UserWarning: expandable_segments not supported on this platform (Triggered internally at C:\actions-runner\_work\pytorch\pytorch\builder\windows\pytorch\c10/cuda/CUDAAllocatorConfig.h:28.)
+  return fb.to(device=get_device())
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\checkpoint.py:77: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+  latest = torch.load(latest, map_location="cpu")
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\io.py:9: UserWarning: `torchaudio.backend.common.AudioMetaData` has been moved to `torchaudio.AudioMetaData`. Please update the import path.
+  from torchaudio.backend.common import AudioMetaData
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\io.py:9: UserWarning: `torchaudio.backend.common.AudioMetaData` has been moved to `torchaudio.AudioMetaData`. Please update the import path.
+  from torchaudio.backend.common import AudioMetaData
+2025-12-15 08:20:46.918 | WARNING  | df.logger:warn_once:75 - Audio sampling rate does not match model sampling rate (44100, 48000). Resampling...
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\io.py:106: UserWarning: "sinc_interpolation" resampling method name is being deprecated and replaced by "sinc_interp_hann" in the next release. The default behavior remains unchanged.
+  return ta_resample(audio, orig_sr, new_sr, **params)
+C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\conv.py:549: UserWarning: cuDNN cannot be used for large non-batch-splittable convolutions if the V8 API is not enabled or before cuDNN version 9.3+. Consider upgrading cuDNN and/or enabling the V8 API for better efficiency. (Triggered internally at C:\actions-runner\_work\pytorch\pytorch\builder\windows\pytorch\aten\src\ATen\native\Convolution.cpp:432.)
+  return F.conv2d(
+Traceback (most recent call last):
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\runpy.py", line 196, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\runpy.py", line 86, in _run_code
+    exec(code, run_globals)
+  File "C:\Users\Administrator\.conda\envs\dfn\Scripts\deepFilter.exe\__main__.py", line 6, in <module>
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\enhance.py", line 378, in run
+    main(args)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\enhance.py", line 78, in main
+    audio = enhance(
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\utils\_contextlib.py", line 116, in decorate_context
+    return func(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\enhance.py", line 235, in enhance
+    enhanced = model(spec.clone(), erb_feat, spec_feat)[0].cpu()
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\deepfilternet3.py", line 411, in forward
+    e0, e1, e2, e3, emb, c0, lsnr = self.enc(feat_erb, feat_spec)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\df\deepfilternet3.py", line 177, in forward
+    c0 = self.df_conv0(feat_spec)  # [B, C, T, Fc]
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\container.py", line 250, in forward
+    input = module(input)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\conv.py", line 554, in forward
+    return self._conv_forward(input, self.weight, self.bias)
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\torch\nn\modules\conv.py", line 549, in _conv_forward
+    return F.conv2d(
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 17.07 GiB. GPU 0 has a total capacity of 16.00 GiB of which 0 bytes is free. Of the allocated memory 19.04 GiB is allocated by PyTorch, and 386.84 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+
+
+[2025-12-15 08:46:46,635] INFO in http_service: Health check requested
+[2025-12-15 14:02:10,337] INFO in http_service: Health check requested
+[2025-12-15 15:25:42,005] INFO in http_service: Health check requested
+[2025-12-15 19:08:52,115] INFO in http_service: Health check requested
+[2025-12-15 23:32:51,096] INFO in http_service: Health check requested
+[2025-12-17 10:46:13,472] INFO in http_service: Health check requested
+[2025-12-17 10:49:56,436] INFO in http_service: Health check requested
+[2025-12-17 11:06:02,089] INFO in http_service: Health check requested
+[2025-12-17 11:19:41,647] INFO in http_service: Health check requested
+[2025-12-17 11:25:01,711] INFO in http_service: Health check requested
+[2025-12-17 11:54:59,544] INFO in http_service: Health check requested
+[2025-12-17 12:09:19,389] ERROR in http_service: Processing error: index 9007199397576728 is out of bounds for axis 0 with size 164407680
+Traceback (most recent call last):
+  File "C:\work\dfn\http_service.py", line 134, in process_audio
+    dfn_main()
+  File "C:\work\dfn\dfn_2stage.py", line 326, in main
+    ns_clean = suppress_speech_resonance(ns_final, sr1)
+  File "C:\work\dfn\dfn_2stage.py", line 251, in suppress_speech_resonance
+    y_out = librosa.istft(S_new, hop_length=512, length=len(y))
+  File "C:\Users\Administrator\.conda\envs\dfn\lib\site-packages\librosa\core\spectrum.py", line 615, in istft
+    y[..., approx_nonzero_indices] /= ifft_window_sum[approx_nonzero_indices]
+IndexError: index 9007199397576728 is out of bounds for axis 0 with size 164407680
+
+[2025-12-17 12:42:59,053] INFO in http_service: Health check requested

@@ -1,0 +1,42 @@
+# VideoTranslator - Python Dependencies
+
+# Core dependencies
+# (No external Python packages needed for Step 1 - uses subprocess to call FFmpeg)
+
+# Future steps may require:
+# Step 2 - Vocal separation
+demucs>=4.0.0
+# spleeter>=2.3.0
+
+# Step 3 - Transcription
+openai-whisper>=20230918
+torch>=2.0.0
+ffmpeg-python>=0.2.0
+# faster-whisper>=0.9.0
+
+# Step 4 - Translation
+openai>=1.0.0
+# deep-translator>=1.11.0
+# googletrans>=4.0.0
+
+# Step 6 - TTS
+# elevenlabs>=0.2.0
+# openai>=1.0.0
+
+# Step 7 - Audio Stitching
+# Uses FFmpeg only - no Python dependencies required
+# Optional: rubberband-cli for high-quality time-stretching (install via system package manager)
+
+# Audio processing utilities
+
+# Development dependencies
+# pytest>=7.4.0
+# pytest-cov>=4.1.0
+# black>=23.0.0
+# flake8>=6.0.0
+# mypy>=1.5.0
+
+# Note: FFmpeg must be installed separately on the system
+# Ubuntu/Debian: apt-get install ffmpeg
+# macOS: brew install ffmpeg
+# Windows: Download from https://ffmpeg.org/download.html

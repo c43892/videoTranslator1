@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+output/
+*.mp4
+*.mp3
+*.wav
+*.srt
+.DS_Store
+.idea/
+.vscode/

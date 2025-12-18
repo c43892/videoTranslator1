@@ -1,0 +1,101 @@
+# Configuration for VideoTranslator
+# This file contains default settings for all processing steps
+
+# Step 3: Transcription Configuration
+transcription:
+  # Transcription engine (currently only "whisper" is supported)
+  engine: "whisper"
+  
+  # Whisper-specific settings
+  whisper:
+    # Model size: tiny, base, small, medium, large, large-v2, large-v3
+    # Larger models are more accurate but slower and use more memory
+    # tiny   - ~1GB VRAM, fastest
+    # base   - ~1GB VRAM, good balance
+    # small  - ~2GB VRAM, better accuracy
+    # medium - ~5GB VRAM, high accuracy
+    # large  - ~10GB VRAM, best accuracy
+    model: "base"
+    
+    # Device: auto, cpu, cuda
+    # auto - automatically detect GPU and use if available
+    # cpu  - force CPU usage (slower but works everywhere)
+    # cuda - force GPU usage (requires NVIDIA GPU with CUDA)
+    device: "auto"
+    
+    # Language code for transcription (null for auto-detection)
+    # Examples: "en", "zh", "ja", "es", "fr", "de", "ko"
+    # null means Whisper will detect the language automatically
+    language: null
+    
+    # Task: transcribe or translate
+    # transcribe - transcribe in original language
+    # translate  - transcribe and translate to English (Whisper built-in)
+    # Note: For VideoTranslator, always use "transcribe" 
+    # Translation happens in Step 4
+    task: "transcribe"
+    
+    # Enable word-level timestamps for more precise timing
+    word_timestamps: true
+    
+    # Verbose output during transcription
+    verbose: false
+  
+  # Non-dialogue event detection settings
+  non_dialogue:
+    # Enable detection of non-speech events (laughing, crying, etc.)
+    detect: true
+    
+    # Confidence threshold for valid speech (0.0 to 1.0)
+    # Segments with lower confidence may be marked as non-dialogue
+    confidence_threshold: 0.7
+    
+    # Custom markers for different event types
+    # These will be used in the SRT output
+    markers:
+      laughing: "[[ laughing ]]"
+      crying: "[[ crying ]]"
+      breathing: "[[ breathing ]]"
+      panting: "[[ panting ]]"
+      sighing: "[[ sighing ]]"
+      coughing: "[[ coughing ]]"
+      screaming: "[[ screaming ]]"
+      gasping: "[[ gasping ]]"
+      music: "[[ music ]]"
+      applause: "[[ applause ]]"
+      inaudible: "[[ inaudible ]]"
+      silence: "[[ silence ]]"
+  
+  # SRT output formatting
+  output:
+    # Maximum characters per line for readability
+    max_chars_per_line: 42
+    
+    # Maximum lines per subtitle entry (typically 1-2)
+    max_lines_per_subtitle: 2
+    
+    # Minimum subtitle duration in seconds
+    min_duration: 0.5
+    
+    # Maximum subtitle duration in seconds
+    max_duration: 7.0
+    
+    # Encoding for SRT file
+    encoding: "utf-8"
+
+# General settings
+general:
+  # Working directory for temporary files
+  temp_dir: "temp"
+  
+  # Keep intermediate files after processing
+  keep_intermediate: true
+  
+  # Number of worker threads for parallel processing
+  num_workers: 1
+  
+  # Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  log_level: "INFO"
+  
+  # Log file location
+  log_file: "videotranslator.log"
