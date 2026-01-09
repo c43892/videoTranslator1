@@ -141,7 +141,8 @@ Requirements:
 1. Maintain the natural tone and style of the original text
 2. Preserve any formatting or special characters
 3. STRICTLY follow the terminology reference provided below for specific terms
-4. Provide only the translated text without explanations
+4. Match the syllable count and reading duration of the original text as closely as possible - the translation should take approximately the same time to read aloud
+5. Provide only the translated text without explanations
 
 Terminology Reference:
 {terminology_str}
@@ -154,7 +155,8 @@ Text to translate: {text}"""
 Requirements:
 1. Maintain the natural tone and style of the original text
 2. Preserve any formatting or special characters
-3. Provide only the translated text without explanations
+3. Match the syllable count and reading duration of the original text as closely as possible - the translation should take approximately the same time to read aloud
+4. Provide only the translated text without explanations
 
 Text to translate: {text}"""
         
@@ -324,9 +326,10 @@ Requirements:
 1. Maintain the natural tone and style of the original text
 2. Preserve dialogue coherence and context across entries
 3. STRICTLY follow the terminology reference provided below for specific terms
-4. For entries that are pure events (text matching pattern [[ event ]]), keep them unchanged
-5. For mixed content containing [[ event ]] markers, remove the event markers and translate only the dialogue part
-6. Return a JSON array with the same structure, replacing "text" with "translation"
+4. Match the syllable count and reading duration of the original text as closely as possible - translations should take approximately the same time to read aloud
+5. For entries that are pure events (text matching pattern [[ event ]]), keep them unchanged
+6. For mixed content containing [[ event ]] markers, remove the event markers and translate only the dialogue part
+7. Return a JSON array with the same structure, replacing "text" with "translation"
 
 Terminology Reference:
 {terminology_str}
@@ -341,9 +344,10 @@ Output only the JSON array with translations. Do not include explanations or mar
 Requirements:
 1. Maintain the natural tone and style of the original text
 2. Preserve dialogue coherence and context across entries
-3. For entries that are pure events (text matching pattern [[ event ]]), keep them unchanged
-4. For mixed content containing [[ event ]] markers, remove the event markers and translate only the dialogue part
-5. Return a JSON array with the same structure, replacing "text" with "translation"
+3. Match the syllable count and reading duration of the original text as closely as possible - translations should take approximately the same time to read aloud
+4. For entries that are pure events (text matching pattern [[ event ]]), keep them unchanged
+5. For mixed content containing [[ event ]] markers, remove the event markers and translate only the dialogue part
+6. Return a JSON array with the same structure, replacing "text" with "translation"
 
 Input JSON:
 {batch_json}

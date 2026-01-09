@@ -14,7 +14,7 @@ class SpeechSeparator:
     using an external HTTP service.
     """
     
-    def __init__(self, api_url: str = "http://127.0.0.1:5000"):
+    def __init__(self, api_url: str = "https://dfn-service-105532883168.us-central1.run.app"):
         """
         Initialize SpeechSeparator.
         
@@ -44,7 +44,7 @@ class SpeechSeparator:
         
         # Check service health
         try:
-            health_resp = requests.get(f"{self.api_url}/health", timeout=5)
+            health_resp = requests.get(f"{self.api_url}/health", timeout=60)
             if health_resp.status_code != 200:
                 logger.warning(f"Speech separation service health check failed: {health_resp.status_code}")
         except Exception as e:

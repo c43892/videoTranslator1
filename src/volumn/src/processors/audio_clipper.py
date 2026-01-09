@@ -371,12 +371,11 @@ class FFmpegAudioClipper(AudioClipper):
         entries = []
         
         try:
-            with open(srt_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-        except UnicodeDecodeError:
-            # Try with different encoding
+            # Always use utf-8-sig to handle BOM automatically
             with open(srt_path, 'r', encoding='utf-8-sig') as f:
                 content = f.read()
+        except Exception as e:
+            raise ValueError(f"Failed to read SRT file: {e}")
         
         # Split into blocks (entries separated by blank lines)
         blocks = re.split(r'\n\s*\n', content.strip())
@@ -391,8 +390,9 @@ class FFmpegAudioClipper(AudioClipper):
                 continue
             
             try:
-                # Parse entry number
-                number = int(lines[0].strip())
+                # Parse entry number - strip any BOM or whitespace
+                number_str = lines[0].strip().lstrip('\ufeff')
+                number = int(number_str)
                 
                 # Parse timestamp line
                 timestamp_line = lines[1].strip()
