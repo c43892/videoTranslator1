@@ -165,6 +165,35 @@ class VideoAssembler:
         
         logger.info(f"VideoAssembler initialized: format={output_format}, video_codec={video_codec}, audio_codec={audio_codec}")
     
+    def _get_language_code(self, language: str) -> str:
+        """
+        Convert language name to ISO 639-2 code.
+        
+        Args:
+            language: Language name (e.g., "English", "Chinese")
+            
+        Returns:
+            ISO 639-2 language code (e.g., "eng", "chi")
+        """
+        # Common language mappings
+        language_codes = {
+            'english': 'eng',
+            'chinese': 'chi',
+            'mandarin': 'chi',
+            'japanese': 'jpn',
+            'korean': 'kor',
+            'spanish': 'spa',
+            'french': 'fra',
+            'german': 'ger',
+            'italian': 'ita',
+            'portuguese': 'por',
+            'russian': 'rus',
+            'arabic': 'ara'
+        }
+        
+        lang_lower = language.lower()
+        return language_codes.get(lang_lower, 'und')  # 'und' = undefined
+    
     def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Main processing method for video assembly.
@@ -253,13 +282,17 @@ class VideoAssembler:
         output_file = output_dir / f"video_translated.{output_format}"
         logger.info(f"Combining video and audio into: {output_file}")
         
+        # Get subtitle language from input_data
+        subtitle_language = input_data.get('subtitle_language', 'English')
+        
         self.combine_video_audio(
             str(video_file),
             str(final_audio_file),
             str(output_file),
             video_bitrate=video_bitrate,
             audio_bitrate=audio_bitrate,
-            srt_path=str(srt_file) if srt_file and self.embed_subtitles else None
+            srt_path=str(srt_file) if srt_file and self.embed_subtitles else None,
+            subtitle_language=subtitle_language if srt_file and self.embed_subtitles else None
         )
         
         # Generate metadata
@@ -351,7 +384,8 @@ class VideoAssembler:
         output_path: str,
         video_bitrate: Optional[str] = None,
         audio_bitrate: str = "192k",
-        srt_path: Optional[str] = None
+        srt_path: Optional[str] = None,
+        subtitle_language: Optional[str] = None
     ):
         """
         Combine video and audio tracks using FFmpeg.
@@ -406,6 +440,12 @@ class VideoAssembler:
             else:
                 # Default to copy for other containers (mkv supports srt directly)
                 cmd.extend(['-c:s', 'copy'])
+            
+            # Add subtitle language metadata if provided
+            if subtitle_language:
+                # Convert language name to ISO 639-2 code if needed
+                lang_code = self._get_language_code(subtitle_language)
+                cmd.extend(['-metadata:s:s:0', f'language={lang_code}'])
         
         cmd.extend([
             '-shortest',  # End output at shortest input

@@ -19,7 +19,7 @@ if str(INDEXTTS_PATH) not in sys.path:
 try:
     from indextts.infer_v2 import IndexTTS2 as IndexTTS2Model
 except ImportError as e:
-    logging.warning(f"IndexTTS2 not available: {e}")
+    # Silently fail - warning will be shown only when user tries to use local mode
     IndexTTS2Model = None
 
 logger = logging.getLogger(__name__)

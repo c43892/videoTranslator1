@@ -29,6 +29,7 @@ class DemucsVocalSeparator:
         float32: bool = False,
         clip_mode: str = 'rescale',
         segment_size: Optional[int] = None,
+        shifts: int = 0,
         keep_intermediate: bool = False,
         vocals_filename: str = 'vocals.mp3',
         no_vocals_filename: str = 'no_vocals.mp3'
@@ -44,6 +45,7 @@ class DemucsVocalSeparator:
             float32: Use float32 precision (default: False)
             clip_mode: How to handle clipping ('rescale', 'clamp', etc.)
             segment_size: Segment size for processing (None for auto)
+            shifts: Number of random shifts for better quality (0=faster, 1=default quality)
             keep_intermediate: Keep intermediate Demucs output files
             vocals_filename: Output filename for vocals (default: 'vocals.mp3')
             no_vocals_filename: Output filename for no_vocals (default: 'no_vocals.mp3')
@@ -56,6 +58,7 @@ class DemucsVocalSeparator:
         self.float32 = float32
         self.clip_mode = clip_mode
         self.segment_size = segment_size
+        self.shifts = shifts
         self.keep_intermediate = keep_intermediate
         self.vocals_filename = vocals_filename
         self.no_vocals_filename = no_vocals_filename
@@ -213,6 +216,9 @@ class DemucsVocalSeparator:
         if self.segment_size:
             cmd.extend(['--segment', str(self.segment_size)])
         
+        # Add shifts parameter (0 = no shifts, faster and less memory)
+        cmd.extend(['--shifts', str(self.shifts)])
+        
         # Add output format
         if self.output_format == 'mp3':
             cmd.append('--mp3')
@@ -224,6 +230,11 @@ class DemucsVocalSeparator:
         cmd.append(input_path)
         
         self.logger.debug(f"Executing Demucs command: {' '.join(cmd)}")
+        
+        # CRITICAL DEBUG: Print the actual command to verify shifts parameter
+        print(f"\n🔍 DEBUG: Demucs command:")
+        print(f"   {' '.join(cmd)}")
+        print(f"   shifts parameter: {self.shifts}\n")
         
         # Execute command
         try:

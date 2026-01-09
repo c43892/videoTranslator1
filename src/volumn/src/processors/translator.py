@@ -476,8 +476,10 @@ Output only the JSON array with translations. Do not include explanations or mar
                 chunk = entries[i:i + self.chunk_size]
                 chunk_num = (i // self.chunk_size) + 1
                 total_chunks = (len(entries) + self.chunk_size - 1) // self.chunk_size
+                percentage = (chunk_num / total_chunks) * 100
                 
-                logger.info(f"Translating chunk {chunk_num}/{total_chunks} ({len(chunk)} entries)...")
+                logger.info(f"Translating chunk {chunk_num}/{total_chunks} ({percentage:.1f}%) - {len(chunk)} entries")
+                print(f"  [Step 4] Translating chunk {chunk_num}/{total_chunks} ({percentage:.1f}%)")
                 chunk_translations = self.translate_batch(
                     chunk, source_language, target_language, terminology
                 )

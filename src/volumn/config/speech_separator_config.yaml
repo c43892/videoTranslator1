@@ -1,0 +1,52 @@
+# Speech Separator Configuration
+# Configuration for Step 2.5 - Speech Separation using DFN service
+
+# DFN Service Settings
+service:
+  # Cloud Run service URL
+  url: "https://dfn-service-105532883168.us-central1.run.app"
+  
+  # Request timeout in seconds
+  timeout: 36000  # 10 hours
+
+# Client-side Chunking Settings
+# Used when file size exceeds Cloud Run's 32MB upload limit
+chunking:
+  # Enable automatic chunking for large files
+  enabled: true
+  
+  # File size threshold (MB) to trigger chunking
+  threshold_mb: 30
+  
+  # Chunk duration in seconds
+  # Recommended values:
+  #   - WAV:  150s (2.5 min) → ~25 MB per chunk
+  #   - FLAC: 300s (5 min)   → ~25 MB per chunk
+  #   - MP3:  600s (10 min)  → ~24 MB per chunk @ 320kbps
+  chunk_duration_sec: 600
+  
+  # Audio format for chunks
+  # Options: 'wav', 'flac', 'mp3'
+  # 
+  # Format comparison (for 44.1kHz 16-bit stereo):
+  #   WAV:  10.08 MB/min (uncompressed, largest)
+  #   FLAC: ~5 MB/min    (lossless compression, 50% smaller)
+  #   MP3:  2.4 MB/min   (lossy @ 320kbps, smallest, good quality)
+  chunk_format: 'mp3'
+  
+  # MP3 bitrate (only used when chunk_format is 'mp3')
+  # Options: '128k', '192k', '256k', '320k'
+  # Recommended: '320k' for best quality
+  mp3_bitrate: '320k'
+  
+  # FLAC compression level (only used when chunk_format is 'flac')
+  # Range: 0-8 (0=fastest, 8=smallest file)
+  # Recommended: 5 (good balance)
+  flac_compression: 5
+
+# Output Settings
+output:
+  # Output format for final merged files
+  # Options: 'wav', 'flac'
+  # Note: DFN service always outputs WAV, this is for final save format
+  format: 'wav'

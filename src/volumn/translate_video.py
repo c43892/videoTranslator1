@@ -36,6 +36,7 @@ try:
     INDEXTTS_AVAILABLE = True
 except ImportError:
     INDEXTTS_AVAILABLE = False
+    # Don't print warning here - only warn when user tries to use local mode
 from processors.audio_stitcher import AudioStitcher
 from processors.video_assembler import VideoAssembler
 
@@ -45,13 +46,19 @@ def setup_logging(output_dir: Path, verbose: bool = False):
     log_file = output_dir / f"translation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
     
     level = logging.DEBUG if verbose else logging.INFO
+    
+    # Configure handlers with UTF-8 encoding
+    file_handler = logging.FileHandler(log_file, encoding='utf-8')
+    console_handler = logging.StreamHandler(sys.stdout)
+    
+    # Force UTF-8 encoding for console on Windows
+    if hasattr(console_handler.stream, 'reconfigure'):
+        console_handler.stream.reconfigure(encoding='utf-8')
+    
     logging.basicConfig(
         level=level,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.StreamHandler(),
-            logging.FileHandler(log_file)
-        ]
+        handlers=[console_handler, file_handler]
     )
     return log_file
 
@@ -498,10 +505,13 @@ class VideoTranslationPipeline:
         print(f"\n🎵 Separating vocals from background audio...")
         print(f"⚙️  Using Demucs AI model (GPU mode for faster processing)")
         
-        # Use GPU mode with segment size within model limits (max 7.8)
+        # Use GPU mode with very conservative settings for large files
+        # segment_size=3: ~3GB GPU memory
+        # shifts=0: Disable random shifts to prevent 27GB memory allocation
         separator = DemucsVocalSeparator(
             device='cuda',
-            segment_size=7  # Within model limit of 7.8
+            segment_size=3,
+            shifts=1  # Changed to 1 for better quality (user will test with shorter video)
         )
         print("⏳ Processing on GPU - this will be much faster...")
         vocals, no_vocals = separator.process(
@@ -736,8 +746,8 @@ class VideoTranslationPipeline:
             # Log progress every 5 clips
             if i % 5 == 0 or i == total_clips:
                 progress_pct = (i / total_clips) * 100
-                print(f"  Progress: {i}/{total_clips} clips ({progress_pct:.1f}%) - {succeeded} generated, {copied_events} events")
-                self.logger.info(f"Progress: {i}/{total_clips} clips processed")
+                print(f"  [Step 6] Generating clip {i}/{total_clips} ({progress_pct:.1f}%)")
+                self.logger.info(f"TTS progress: {i}/{total_clips} clips ({progress_pct:.1f}%) - {succeeded} generated, {copied_events} events")
         
         # Retry rounds
         retry_round = 1
@@ -839,7 +849,8 @@ class VideoTranslationPipeline:
             'video_file': video_file,
             'audio_file': audio_file,
             'output_dir': str(self.step_dirs[8]),
-            'srt_file': srt_file
+            'srt_file': srt_file,
+            'subtitle_language': self.target_language
         })
         
         print(f"✓ Final video: {Path(result['video_translated']).name}")

@@ -215,6 +215,9 @@ class AudioStitcher:
             processed_clip_files: List[Tuple[str, float]] = []  # (file_path, start_time_seconds)
             
             for i, entry in enumerate(srt_entries, start=1):
+                percentage = (i / len(srt_entries)) * 100
+                logger.info(f"Stitching clip {i}/{len(srt_entries)} ({percentage:.1f}%)")
+                print(f"  [Step 7] Stitching clip {i}/{len(srt_entries)} ({percentage:.1f}%)")
                 clip_file = translated_clips_dir / f"translated_clip_{i}.mp3"
                 
                 # Show progress every 10 clips or at the end
