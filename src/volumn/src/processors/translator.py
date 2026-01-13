@@ -54,7 +54,8 @@ class Translator:
         temperature: float = 0.3,
         max_retries: int = 3,
         timeout: int = 120,
-        chunk_size: int = 15
+        chunk_size: int = 15,
+        base_url: Optional[str] = None
     ):
         """
         Initialize translator.
@@ -66,12 +67,12 @@ class Translator:
             max_retries: Maximum number of retry attempts for failed API calls
             timeout: Timeout for API calls in seconds (default: 120)
             chunk_size: Number of entries per batch (default: 15)
+            base_url: Optional custom API base URL (e.g. for Meganova/DeepSeek)
         """
-        # Hardcoded API key for local dev as requested
+        # Hardcoded API key for local dev as requested (if not using custom service)
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         if not self.api_key:
-            logger.warning("No OpenAI API key provided. Set OPENAI_API_KEY env var.")
-
+            logger.warning("No API key provided. Set OPENAI_API_KEY or MEGANOVA_API_KEY env var.")
         
         self.model = model
         self.temperature = temperature
@@ -79,10 +80,17 @@ class Translator:
         self.timeout = timeout
         self.chunk_size = chunk_size
         
-        # Initialize OpenAI client
-        self.client = OpenAI(api_key=self.api_key, timeout=self.timeout)
+        # Initialize OpenAI client with custom base_url if provided
+        self.client = OpenAI(
+            api_key=self.api_key, 
+            timeout=self.timeout,
+            base_url=base_url
+        )
         
-        logger.info(f"Initialized Translator with model: {model}")
+        logger.info(f"Initialized Translator with model: {model} (Base URL: {base_url or 'Default OpenAI'})")
+
+
+
     
     def is_pure_event(self, text: str) -> bool:
         """
@@ -141,7 +149,7 @@ Requirements:
 1. Maintain the natural tone and style of the original text
 2. Preserve any formatting or special characters
 3. STRICTLY follow the terminology reference provided below for specific terms
-4. Match the syllable count and reading duration of the original text as closely as possible - the translation should take approximately the same time to read aloud
+4. Match the reading duration of the original text as closely as possible. The translation MUST NOT be significantly longer than the original text, as it needs to fit into the original audio timeframe.
 5. Provide only the translated text without explanations
 
 Terminology Reference:
@@ -155,7 +163,7 @@ Text to translate: {text}"""
 Requirements:
 1. Maintain the natural tone and style of the original text
 2. Preserve any formatting or special characters
-3. Match the syllable count and reading duration of the original text as closely as possible - the translation should take approximately the same time to read aloud
+3. Match the reading duration of the original text as closely as possible. The translation MUST NOT be significantly longer than the original text, as it needs to fit into the original audio timeframe.
 4. Provide only the translated text without explanations
 
 Text to translate: {text}"""
@@ -193,6 +201,20 @@ Text to translate: {text}"""
             try:
                 logger.debug(f"Translation attempt {attempt + 1}/{self.max_retries}")
                 
+                # Calculate max_tokens constraint based on duration duration estimates
+                duration_est = self._estimate_duration(text)
+                limit_val, limit_unit = self._calculate_target_limit(duration_est, target_language)
+                
+                # Convert limit to tokens for the API constraint
+                # 1 CJK char approx 1.5 tokens (conservative), 1 English word approx 1.3 tokens
+                if limit_unit == "chars":
+                    safe_max_tokens = int(limit_val * 2.0) # Buffer factor 2.0
+                else:
+                    safe_max_tokens = int(limit_val * 2.5) # Buffer factor 2.5 for words
+                
+                # Clamp range [50, 4096]
+                safe_max_tokens = max(50, min(4096, safe_max_tokens))
+
                 response = self.client.chat.completions.create(
                     model=self.model,
                     messages=[
@@ -205,7 +227,8 @@ Text to translate: {text}"""
                             "content": prompt
                         }
                     ],
-                    temperature=self.temperature
+                    temperature=self.temperature,
+                    max_tokens=safe_max_tokens
                 )
                 
                 translated = response.choices[0].message.content.strip()
@@ -326,7 +349,7 @@ Requirements:
 1. Maintain the natural tone and style of the original text
 2. Preserve dialogue coherence and context across entries
 3. STRICTLY follow the terminology reference provided below for specific terms
-4. Match the syllable count and reading duration of the original text as closely as possible - translations should take approximately the same time to read aloud
+4. Match the reading duration of the original text as closely as possible. The translation MUST NOT be significantly longer than the original text, as it needs to fit into the original audio timeframe.
 5. For entries that are pure events (text matching pattern [[ event ]]), keep them unchanged
 6. For mixed content containing [[ event ]] markers, remove the event markers and translate only the dialogue part
 7. Return a JSON array with the same structure, replacing "text" with "translation"
@@ -344,7 +367,7 @@ Output only the JSON array with translations. Do not include explanations or mar
 Requirements:
 1. Maintain the natural tone and style of the original text
 2. Preserve dialogue coherence and context across entries
-3. Match the syllable count and reading duration of the original text as closely as possible - translations should take approximately the same time to read aloud
+3. Match the reading duration of the original text as closely as possible. The translation MUST NOT be significantly longer than the original text, as it needs to fit into the original audio timeframe.
 4. For entries that are pure events (text matching pattern [[ event ]]), keep them unchanged
 5. For mixed content containing [[ event ]] markers, remove the event markers and translate only the dialogue part
 6. Return a JSON array with the same structure, replacing "text" with "translation"
@@ -555,6 +578,7 @@ Output only the JSON array with translations. Do not include explanations or mar
 class GPT4Translator:
     """
     Wrapper class for GPT-4 based translation with simplified process() interface.
+    Now supports generic OpenAI-compatible services (like DeepSeek via Meganova).
     """
     
     def __init__(
@@ -563,7 +587,8 @@ class GPT4Translator:
         target_language: str = "English",
         source_language: str = "auto",
         model: str = "gpt-5-mini",
-        chunk_size: int = 15
+        chunk_size: int = 15,
+        base_url: Optional[str] = None
     ):
         """
         Initialize GPT4Translator.
@@ -574,10 +599,16 @@ class GPT4Translator:
             source_language: Source language (default: auto-detect)
             model: OpenAI model to use (default: gpt-5-mini)
             chunk_size: Number of entries per batch (default: 15)
+            base_url: Optional custom API base URL
         """
         self.target_language = target_language
         self.source_language = source_language
-        self.translator = Translator(api_key=api_key, model=model, chunk_size=chunk_size)
+        self.translator = Translator(
+            api_key=api_key, 
+            model=model, 
+            chunk_size=chunk_size,
+            base_url=base_url
+        )
     
     def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """

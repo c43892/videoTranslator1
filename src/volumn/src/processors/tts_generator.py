@@ -142,14 +142,36 @@ class IndexTTS2Generator:
             
             # Call IndexTTS2 inference
             # Only use parameters supported by the model
-            self.tts.infer(
-                spk_audio_prompt=str(reference_audio_path),  # Voice reference
-                text=translated_text,                         # Text to speak
-                output_path=str(temp_wav),                   # Output WAV
-                emo_alpha=emo_alpha,                         # Emotion strength (default: 1.0)
-                use_random=use_random,                       # Randomness (False recommended for consistency)
-                verbose=False                                # Reduce output noise
-            )
+            infer_kwargs = {
+                "spk_audio_prompt": str(reference_audio_path),
+                "text": translated_text,
+                "output_path": str(temp_wav),
+                "emo_alpha": emo_alpha,
+                "use_random": use_random,
+                "verbose": False
+            }
+
+            # [Match Duration] Use token-based length control based on target duration
+            # Formula: 1 second approx equals 50 tokens (based on 22050Hz / 256 hop / 1.72 factor)
+            if match_duration and target_duration:
+                # Calculate target tokens
+                target_tokens = int(target_duration * 50)
+                
+                # Safety check: IndexTTS2 typically needs at least ~25 tokens to generate meaningful speech
+                # and has a max limit (usually ~1800).
+                # We also want to avoid extreme edge cases where a 10s text is forced into 0.5s audio.
+                if 25 < target_tokens < 1750:
+                    logger.info(f"Duration Control: Target {target_duration:.2f}s -> Forcing {target_tokens} tokens")
+                    infer_kwargs["min_new_tokens"] = target_tokens
+                    infer_kwargs["max_new_tokens"] = target_tokens
+                    infer_kwargs["forced_eos_token_id"] = None
+                    # Verify extremely long text doesn't break this
+                    # We force a large segment size to ensure the token constraint applies to the WHOLE clip
+                    infer_kwargs["max_text_tokens_per_segment"] = 600
+                else:
+                    logger.warning(f"Duration {target_duration:.2f}s ({target_tokens} tokens) out of safe control range (0.5-35s), falling back to post-processing only")
+
+            self.tts.infer(**infer_kwargs)
             
             # Trim silence from beginning and end of TTS output
             trimmed_wav = temp_wav.parent / f"trimmed_{temp_wav.name}"

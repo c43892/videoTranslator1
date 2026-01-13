@@ -26,6 +26,7 @@ from processors.vocal_separator import DemucsVocalSeparator
 from processors.speech_separator import SpeechSeparator
 from processors.transcriber import WhisperTranscriber
 from processors.openai_transcriber import OpenAITranscriber
+from processors.meganova_transcriber import MeganovaTranscriber
 from processors.subtitle_extractor import SubtitleExtractor
 from processors.translator import GPT4Translator
 from processors.audio_clipper import FFmpegAudioClipper
@@ -87,7 +88,9 @@ class VideoTranslationPipeline:
         source_language: Optional[str] = None,
         target_srt_path: Optional[Path] = None,
         source_srt_path: Optional[Path] = None,
-        force_transcribe: bool = False
+        force_transcribe: bool = False,
+        translator_service: str = "openai",
+        translator_model: Optional[str] = None
     ):
         """
         Initialize the pipeline.
@@ -104,6 +107,8 @@ class VideoTranslationPipeline:
             target_srt_path: Optional path to an existing target language subtitle file
             source_srt_path: Optional path to an existing source language subtitle file
             force_transcribe: If True, ignore embedded subtitles and force transcription
+            translator_service: Translation service ("openai" or "deepseek")
+            translator_model: Specific model to use
         """
         self.target_language = target_language
         self.output_dir = Path(output_dir)
@@ -118,6 +123,8 @@ class VideoTranslationPipeline:
         self.target_srt_path = Path(target_srt_path) if target_srt_path else None
         self.source_srt_path = Path(source_srt_path) if source_srt_path else None
         self.force_transcribe = force_transcribe
+        self.translator_service = translator_service
+        self.translator_model = translator_model
         
         # Create output directory structure
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -579,9 +586,9 @@ class VideoTranslationPipeline:
         print(f"\n🎤 Transcribing audio to text...")
         
         if self.whisper_mode == "openai":
-            print(f"⚙️  Using OpenAI Whisper API")
-            transcriber = OpenAITranscriber(
-                model_name='whisper-1'
+            print(f"⚙️  Using Meganova Transcriber (Whisper Large V3 via API)")
+            transcriber = MeganovaTranscriber(
+                model_name='Systran/faster-whisper-large-v3'
             )
         else:
             print(f"⚙️  Using Whisper (medium model) on GPU")
@@ -610,16 +617,32 @@ class VideoTranslationPipeline:
             'srt_file': str(result.srt_path)
         }
     
+    
     def step4_translation(self, srt_file: str) -> dict:
         """Step 4: Translate subtitles."""
         self.logger.info("Step 4: Translation")
         print(f"\n🌐 Translating subtitles to {self.target_language}...")
-        print(f"⚙️  Using OpenAI GPT for translation")
         
+        # Configure Translator based on service
+        if self.translator_service == 'deepseek':
+            print(f"⚙️  Using DeepSeek (via Meganova API)")
+            api_key = os.getenv('MEGANOVA_API_KEY')
+            base_url = "https://api.meganova.ai/v1"
+            model = self.translator_model or "deepseek-ai/DeepSeek-V3.2"
+            if not api_key:
+                # Fallback to hardcoded key for user convenience as requested
+                api_key = "sk-0ZdE_aafPY_oRWdoFNEejQ"
+        else:
+            print(f"⚙️  Using OpenAI GPT")
+            api_key = os.getenv('OPENAI_API_KEY')
+            base_url = None # Default OpenAI
+            model = self.translator_model or "gpt-5-mini"
+
         translator = GPT4Translator(
-            # Hardcoded API key for local dev as requested
-            api_key=os.getenv('OPENAI_API_KEY'),
-            target_language=self.target_language
+            api_key=api_key,
+            target_language=self.target_language,
+            model=model,
+            base_url=base_url
         )
         
         input_data = {
@@ -901,12 +924,18 @@ Examples:
     parser.add_argument("--terminology", "-T",
                         help="Path to terminology JSON file (optional)")
     parser.add_argument("--speech-sep-url",
-                        default="http://127.0.0.1:5000",
-                        help="Speech separation service URL (default: http://127.0.0.1:5000)")
+                        default="https://dfn-service-105532883168.us-central1.run.app",
+                        help="Speech separation service URL (default: https://dfn-service-105532883168.us-central1.run.app)")
     parser.add_argument("--target-srt",
                         help="Path to existing target language subtitle file (skips transcription/translation)")
     parser.add_argument("--source-srt",
                         help="Path to existing source language subtitle file (skips transcription, performs translation)")
+    parser.add_argument("--translator-service",
+                        choices=["openai", "deepseek"],
+                        default="openai",
+                        help="Translation service to use: 'openai' or 'deepseek' (default: openai)")
+    parser.add_argument("--translator-model",
+                        help="Override default model for translator (e.g. 'deepseek-chat', 'gpt-4')")
     parser.add_argument("--whisper-mode",
                         choices=["local", "openai"],
                         default="openai",
@@ -967,9 +996,11 @@ Examples:
         tts_mode=args.tts_mode,
         tts_api_url=args.tts_api_url,
         source_language=args.source_lang,
-        target_srt_path=args.target_srt,
-        source_srt_path=args.source_srt,
-        force_transcribe=args.force_transcribe
+        target_srt_path=Path(args.target_srt) if args.target_srt else None,
+        source_srt_path=Path(args.source_srt) if args.source_srt else None,
+        force_transcribe=args.force_transcribe,
+        translator_service=args.translator_service,
+        translator_model=args.translator_model
     )
     
     try:
