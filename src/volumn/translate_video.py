@@ -14,6 +14,7 @@ import sys
 import logging
 import argparse
 import shutil
+import subprocess
 from pathlib import Path
 from typing import Optional
 from datetime import datetime
@@ -23,12 +24,10 @@ sys.path.insert(0, str(Path(__file__).parent / 'src'))
 
 from processors.video_separator import FFmpegVideoAudioSeparator
 from processors.vocal_separator import DemucsVocalSeparator
-from processors.speech_separator import SpeechSeparator
 from processors.transcriber import WhisperTranscriber
 from processors.openai_transcriber import OpenAITranscriber
-from processors.meganova_transcriber import MeganovaTranscriber
 from processors.subtitle_extractor import SubtitleExtractor
-from processors.translator import GPT4Translator
+from processors.translation_provider import create_translation_provider
 from processors.audio_clipper import FFmpegAudioClipper
 from processors.http_tts_generator import HttpTTSGenerator
 # Import IndexTTS2Generator only when needed (to avoid import errors in HTTP-only mode)
@@ -89,7 +88,7 @@ class VideoTranslationPipeline:
         target_srt_path: Optional[Path] = None,
         source_srt_path: Optional[Path] = None,
         force_transcribe: bool = False,
-        translator_service: str = "openai",
+        translator_service: str = "deepseek",
         translator_model: Optional[str] = None
     ):
         """
@@ -120,9 +119,10 @@ class VideoTranslationPipeline:
         self.tts_mode = tts_mode
         self.tts_api_url = tts_api_url
         self.source_language = source_language
-        self.target_srt_path = Path(target_srt_path) if target_srt_path else None
-        self.source_srt_path = Path(source_srt_path) if source_srt_path else None
-        self.force_transcribe = force_transcribe
+        self.target_srt_path = None
+        self.source_srt_path = None
+        # Always derive text and timing from the media audio track.
+        self.force_transcribe = True
         self.translator_service = translator_service
         self.translator_model = translator_model
         
@@ -321,8 +321,8 @@ class VideoTranslationPipeline:
                                 print(f"⚙️  Using OpenAI Whisper API")
                                 transcriber = OpenAITranscriber(model_name='whisper-1')
                             else:
-                                print(f"⚙️  Using Whisper (medium model) on GPU")
-                                transcriber = WhisperTranscriber(model_name='medium', device='cuda')
+                                print(f"⚙️  Using Whisper turbo locally on GPU")
+                                transcriber = WhisperTranscriber(model_name='turbo', device='cuda')
                             
                             print("⏳ Processing audio, this may take a few minutes...")
                             result = transcriber.transcribe(
@@ -436,15 +436,24 @@ class VideoTranslationPipeline:
                 if not Path(step7_result['audio_translated_full']).exists():
                     raise FileNotFoundError("Step 7 output (Audio) missing. Cannot skip Step 7.")
             
-            # Step 8: Final Video Assembly
+            # Step 8: Final media output
             if start_step <= 8:
-                print_section("Step 8/8: Final Video Assembly")
+                print_section("Step 8/8: Final Media Output")
                 self.logger.info("Progress: 7/8 steps completed")
-                step8_result = self.step8_video_assembly(
-                    step1_result['video_only'],
-                    step7_result['audio_translated_full'],
-                    step4_result['srt_translated']
-                )
+                if step1_result.get('video_only'):
+                    step8_result = self.step8_video_assembly(
+                        step1_result['video_only'],
+                        step7_result['audio_translated_full'],
+                        step4_result['srt_translated']
+                    )
+                    step8_result['media_translated'] = step8_result['video_translated']
+                else:
+                    final_audio = self.output_dir / 'audio_translated.mp3'
+                    shutil.copy2(step7_result['audio_translated_full'], final_audio)
+                    step8_result = {
+                        'audio_translated': str(final_audio),
+                        'media_translated': str(final_audio),
+                    }
                 print(f"✓ Step 8 complete - Progress: 8/8 (100%)")
                 self.logger.info("Progress: 8/8 steps completed (100%)")
             
@@ -459,7 +468,7 @@ class VideoTranslationPipeline:
             print_section("Translation Complete!")
             print(f"\n✅ Video translation completed successfully!")
             print(f"\n📹 Final Output:")
-            print(f"  Video: {step8_result['video_translated']}")
+            print(f"  Media: {step8_result['media_translated']}")
             print(f"  Subtitles: {final_srt}")
             print(f"\n⏱️  Total processing time: {total_time:.1f}s ({total_time/60:.1f} minutes)")
             print(f"\n📋 Log file: {self.log_file}")
@@ -470,7 +479,9 @@ class VideoTranslationPipeline:
                 self.cleanup_intermediate_files()
             
             return {
-                'video_translated': step8_result['video_translated'],
+                'media_translated': step8_result['media_translated'],
+                'video_translated': step8_result.get('video_translated'),
+                'audio_translated': step8_result.get('audio_translated'),
                 'srt_translated': str(final_srt),
                 'log_file': str(self.log_file),
                 'total_time': total_time
@@ -488,6 +499,28 @@ class VideoTranslationPipeline:
         print(f"📂 Output directory: {self.step_dirs[1]}")
         
         separator = FFmpegVideoAudioSeparator()
+        stream_info = separator.get_stream_info(input_video)
+        if not stream_info['audio_streams']:
+            raise ValueError(f"No audio stream found in input: {input_video}")
+
+        # Audio-only inputs do not need a video stream. Normalize them to the
+        # same WAV contract consumed by Demucs and the remaining stages.
+        if not stream_info['video_streams']:
+            audio_output = self.step_dirs[1] / 'audio_full.wav'
+            command = [
+                'ffmpeg', '-y', '-i', str(input_video), '-vn',
+                '-acodec', 'pcm_s16le', '-ar', '44100', '-ac', '2',
+                str(audio_output),
+            ]
+            completed = subprocess.run(command, capture_output=True, text=True)
+            if completed.returncode != 0:
+                raise RuntimeError(f"Audio normalization failed: {completed.stderr}")
+            return {
+                'video_only': None,
+                'audio_full': str(audio_output),
+                'media_type': 'audio',
+            }
+
         print("⚙️  Separating video and audio tracks...")
         result = separator.separate(
             input_video_path=input_video,
@@ -503,7 +536,8 @@ class VideoTranslationPipeline:
         
         return {
             'video_only': str(result.video_path),
-            'audio_full': str(result.audio_path)
+            'audio_full': str(result.audio_path),
+            'media_type': 'video',
         }
     
     def step2_vocal_separation(self, audio_file: str) -> dict:
@@ -536,27 +570,9 @@ class VideoTranslationPipeline:
 
     def step2_5_speech_separation(self, vocal_file: str) -> dict:
         """Step 2.5: Separate speech from non-speech vocals."""
-        self.logger.info("Step 2.5: Speech separation")
-        print(f"\n🗣️  Separating speech from vocals...")
-        print(f"⚙️  Using external Speech Separation service at {self.speech_sep_url}")
-        
-        separator = SpeechSeparator(api_url=self.speech_sep_url)
-        output_dir = self.output_dir / "step2_5_speech_separation"
-        
-        print("⏳ Sending audio to separation service...")
-        speech, non_speech = separator.process(
-            input_path=vocal_file,
-            output_dir=str(output_dir)
-        )
-        
-        print(f"✓ Speech track: {Path(speech).name}")
-        print(f"✓ Non-speech track: {Path(non_speech).name}")
-        
-        return {
-            'speech': speech,
-            'non_speech': non_speech
-        }
-    
+        self.logger.info("External speech separation disabled; using local Demucs vocals")
+        return {'speech': vocal_file, 'non_speech': None}
+
     def step3_transcription(self, vocal_file: str, input_video: Optional[Path] = None) -> dict:
         """Step 3: Transcribe vocals to text OR extract embedded subtitles."""
         self.logger.info("Step 3: Transcription")
@@ -586,14 +602,12 @@ class VideoTranslationPipeline:
         print(f"\n🎤 Transcribing audio to text...")
         
         if self.whisper_mode == "openai":
-            print(f"⚙️  Using Meganova Transcriber (Whisper Large V3 via API)")
-            transcriber = MeganovaTranscriber(
-                model_name='Systran/faster-whisper-large-v3'
-            )
+            print(f"⚙️  Using OpenAI Whisper API")
+            transcriber = OpenAITranscriber(model_name='whisper-1')
         else:
-            print(f"⚙️  Using Whisper (medium model) on GPU")
+            print(f"⚙️  Using Whisper turbo locally on GPU")
             transcriber = WhisperTranscriber(
-                model_name='medium',
+                model_name='turbo',
                 device='cuda'
             )
         
@@ -623,26 +637,12 @@ class VideoTranslationPipeline:
         self.logger.info("Step 4: Translation")
         print(f"\n🌐 Translating subtitles to {self.target_language}...")
         
-        # Configure Translator based on service
-        if self.translator_service == 'deepseek':
-            print(f"⚙️  Using DeepSeek (via Meganova API)")
-            api_key = os.getenv('MEGANOVA_API_KEY')
-            base_url = "https://api.meganova.ai/v1"
-            model = self.translator_model or "deepseek-ai/DeepSeek-V3.2"
-            if not api_key:
-                # Fallback to hardcoded key for user convenience as requested
-                api_key = "sk-0ZdE_aafPY_oRWdoFNEejQ"
-        else:
-            print(f"⚙️  Using OpenAI GPT")
-            api_key = os.getenv('OPENAI_API_KEY')
-            base_url = None # Default OpenAI
-            model = self.translator_model or "gpt-5-mini"
-
-        translator = GPT4Translator(
-            api_key=api_key,
+        print(f"⚙️  Using translation provider: {self.translator_service}")
+        translator = create_translation_provider(
+            self.translator_service,
             target_language=self.target_language,
-            model=model,
-            base_url=base_url
+            source_language=self.source_language,
+            model=self.translator_model,
         )
         
         input_data = {
@@ -704,6 +704,11 @@ class VideoTranslationPipeline:
         from utils.srt_handler import load_srt
         original_entries = load_srt(original_srt)
         translated_entries = load_srt(translated_srt)
+        if len(original_entries) != len(translated_entries):
+            raise RuntimeError(
+                "Translation changed the number of timed segments: "
+                f"{len(original_entries)} source vs {len(translated_entries)} translated"
+            )
         
         total_clips = len(original_entries)
         print(f"📄 Processing {total_clips} clips...")
@@ -822,6 +827,8 @@ class VideoTranslationPipeline:
         print(f"  - {copied_events} events copied")
         print(f"  - {failed} failed")
         self.logger.info(f"TTS generation completed: {succeeded} succeeded, {copied_events} events copied, {failed} failed")
+        if failed:
+            raise RuntimeError(f"IndexTTS2 failed to generate {failed} of {total_clips} clips")
         
         return {
             'translated_clips_dir': str(output_dir)
@@ -914,7 +921,7 @@ Examples:
     )
     
     parser.add_argument("input_video",
-                        help="Path to input video file")
+                        help="Path to input video or audio file")
     parser.add_argument("--target-lang", "-t",
                         required=True,
                         help="Target language for translation (e.g., English, Spanish, Chinese)")
@@ -923,27 +930,20 @@ Examples:
                         help="Output directory (default: output/)")
     parser.add_argument("--terminology", "-T",
                         help="Path to terminology JSON file (optional)")
-    parser.add_argument("--speech-sep-url",
-                        default="https://dfn-service-105532883168.us-central1.run.app",
-                        help="Speech separation service URL (default: https://dfn-service-105532883168.us-central1.run.app)")
-    parser.add_argument("--target-srt",
-                        help="Path to existing target language subtitle file (skips transcription/translation)")
-    parser.add_argument("--source-srt",
-                        help="Path to existing source language subtitle file (skips transcription, performs translation)")
     parser.add_argument("--translator-service",
                         choices=["openai", "deepseek"],
-                        default="openai",
-                        help="Translation service to use: 'openai' or 'deepseek' (default: openai)")
+                        default="deepseek",
+                        help="Translation provider (default: deepseek)")
     parser.add_argument("--translator-model",
-                        help="Override default model for translator (e.g. 'deepseek-chat', 'gpt-4')")
+                        help="Override the provider model (e.g. 'deepseek-v4-flash')")
     parser.add_argument("--whisper-mode",
                         choices=["local", "openai"],
-                        default="openai",
-                        help="Transcription mode: 'local' (GPU) or 'openai' (API) (default: openai)")
+                        default="local",
+                        help="Transcription mode (default: local Whisper turbo on GPU)")
     parser.add_argument("--tts-mode",
                         choices=["local", "http"],
-                        default="http",
-                        help="TTS generation mode: 'local' uses IndexTTS2 in container, 'http' calls external API (default: http)")
+                        default="local",
+                        help="TTS generation mode (default: local IndexTTS2)")
     parser.add_argument("--tts-api-url",
                         default="http://localhost:7860",
                         help="TTS API URL when using --tts-mode=http (default: http://localhost:7860)")
@@ -953,9 +953,6 @@ Examples:
                         help="Step to start from (1-8). Default: 1")
     parser.add_argument("--source-lang", "-S",
                         help="Source language of the video (optional, improves transcription accuracy)")
-    parser.add_argument("--force-transcribe",
-                        action="store_true",
-                        help="Force transcription even if embedded subtitles are present")
     parser.add_argument("--cleanup", "-c",
                         action="store_true",
                         help="Remove intermediate files after completion")
@@ -991,14 +988,10 @@ Examples:
         terminology_file=terminology_file,
         keep_intermediate=not args.cleanup,
         verbose=args.verbose,
-        speech_sep_url=args.speech_sep_url,
         whisper_mode=args.whisper_mode,
         tts_mode=args.tts_mode,
         tts_api_url=args.tts_api_url,
         source_language=args.source_lang,
-        target_srt_path=Path(args.target_srt) if args.target_srt else None,
-        source_srt_path=Path(args.source_srt) if args.source_srt else None,
-        force_transcribe=args.force_transcribe,
         translator_service=args.translator_service,
         translator_model=args.translator_model
     )

@@ -64,7 +64,7 @@ class WhisperTranscriber(Transcriber):
     
     def __init__(
         self,
-        model_name: str = "large-v3-turbo",
+        model_name: str = "turbo",
         device: Optional[str] = None,
         detect_non_dialogue: bool = True,
         confidence_threshold: float = 0.7,
@@ -77,7 +77,7 @@ class WhisperTranscriber(Transcriber):
         Initialize Whisper transcriber.
         
         Args:
-            model_name: Whisper model size (tiny, base, small, medium, large)
+            model_name: Whisper model name (tiny, base, small, medium, large, turbo)
             device: Device to use ("cpu", "cuda", or None for auto)
             detect_non_dialogue: Enable non-dialogue event detection
             confidence_threshold: Minimum confidence for valid speech (0.0-1.0)

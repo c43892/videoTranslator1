@@ -1,0 +1,27 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
+display_name: videotranslator
+experiment_name: videotranslator
+code: ../../../src/volumn
+command: >-
+  /app/deploy/download-models.sh python translate_video.py
+  ${{inputs.input_video}}
+  --target-lang ${{inputs.target_language}}
+  --output-dir ${{outputs.translated_output}}
+  --whisper-mode local
+  --translator-service deepseek
+  --tts-mode local
+environment: azureml:videotranslator-t4:1
+compute: serverless
+resources:
+  instance_type: Standard_NC4as_T4_v3
+  shm_size: 16g
+inputs:
+  input_video:
+    type: uri_file
+  target_language:
+    type: string
+    default: English
+outputs:
+  translated_output:
+    type: uri_folder
+    mode: rw_mount

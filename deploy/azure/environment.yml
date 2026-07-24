@@ -1,0 +1,5 @@
+$schema: https://azuremlschemas.azureedge.net/latest/environment.schema.json
+name: videotranslator-t4
+version: 1
+image: ghcr.io/c43892/videotranslator@sha256:f4202b32423eebe3077be096e480da5d00bbc8dd11632198914b9686ec31127e
+description: VideoTranslator with Demucs, Whisper, and IndexTTS2 for NVIDIA T4.

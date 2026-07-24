@@ -35,7 +35,7 @@ class MeganovaTranscriber(Transcriber):
     
     def __init__(
         self,
-        api_key: Optional[str] = "sk-0ZdE_aafPY_oRWdoFNEejQ", # Default key provided by user
+        api_key: Optional[str] = None,
         model_name: str = "Systran/faster-whisper-large-v3",
     ):
         """

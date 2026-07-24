@@ -3,6 +3,7 @@ TTS (Text-to-Speech) Generator for Step 6
 Provides voice cloning and TTS generation using IndexTTS2
 """
 
+import os
 import sys
 import shutil
 import subprocess
@@ -12,7 +13,7 @@ import logging
 import re
 
 # Add IndexTTS2 to Python path
-INDEXTTS_PATH = Path("/app/volumn/.cache/index-tts")
+INDEXTTS_PATH = Path(os.getenv("INDEXTTS_PATH", "/app/volumn/.cache/index-tts"))
 if str(INDEXTTS_PATH) not in sys.path:
     sys.path.insert(0, str(INDEXTTS_PATH))
 
@@ -35,8 +36,8 @@ class IndexTTS2Generator:
     
     def __init__(
         self,
-        model_dir: str = "/app/volumn/.cache/index-tts/checkpoints",
-        config_path: str = "/app/volumn/.cache/index-tts/checkpoints/config.yaml",
+        model_dir: str | None = None,
+        config_path: str | None = None,
         use_fp16: bool = True,
         use_cuda_kernel: bool = False,
         use_deepspeed: bool = False,
@@ -61,18 +62,22 @@ class IndexTTS2Generator:
                                      Lower = more natural but may have noise
                                      Higher = cleaner but may sound processed
         """
-        self.model_dir = Path(model_dir)
-        self.config_path = Path(config_path)
+        default_model_dir = INDEXTTS_PATH / "checkpoints"
+        self.model_dir = Path(model_dir or os.getenv("INDEXTTS_MODEL_DIR", default_model_dir))
+        self.config_path = Path(
+            config_path
+            or os.getenv("INDEXTTS_CONFIG_PATH", self.model_dir / "config.yaml")
+        )
         
         if not self.model_dir.exists():
-            raise FileNotFoundError(f"IndexTTS2 model directory not found: {model_dir}")
+            raise FileNotFoundError(f"IndexTTS2 model directory not found: {self.model_dir}")
         if not self.config_path.exists():
-            raise FileNotFoundError(f"IndexTTS2 config not found: {config_path}")
+            raise FileNotFoundError(f"IndexTTS2 config not found: {self.config_path}")
         
         if IndexTTS2Model is None:
             raise RuntimeError("IndexTTS2 is not available. Please check installation.")
         
-        logger.info(f"Initializing IndexTTS2 with model_dir={model_dir}, use_fp16={use_fp16}")
+        logger.info(f"Initializing IndexTTS2 with model_dir={self.model_dir}, use_fp16={use_fp16}")
         logger.info("This may take 30-60 seconds to load all models...")
         
         # Initialize IndexTTS2 model

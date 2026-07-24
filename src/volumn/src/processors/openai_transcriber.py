@@ -37,7 +37,8 @@ logger = logging.getLogger(__name__)
 class OpenAITranscriber(Transcriber):
     """
     OpenAI API-based audio transcription implementation.
-    Uses OpenAI's Whisper API.
+    Uses OpenAI's transcription API. The pipeline defaults to whisper-1 because
+    it supports SRT timestamps required by downstream audio alignment.
     """
     
     def __init__(
@@ -216,7 +217,12 @@ class OpenAITranscriber(Transcriber):
             )
 
     def get_supported_models(self) -> List[str]:
-        return ['whisper-1']
+        return [
+            'whisper-1',
+            'gpt-4o-transcribe',
+            'gpt-4o-mini-transcribe',
+            'gpt-4o-transcribe-diarize',
+        ]
 
     def _compress_audio_if_needed(self, audio_path: Path) -> Path:
         """

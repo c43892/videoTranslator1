@@ -55,7 +55,8 @@ class Translator:
         max_retries: int = 3,
         timeout: int = 120,
         chunk_size: int = 15,
-        base_url: Optional[str] = None
+        base_url: Optional[str] = None,
+        extra_body: Optional[Dict[str, Any]] = None,
     ):
         """
         Initialize translator.
@@ -67,18 +68,19 @@ class Translator:
             max_retries: Maximum number of retry attempts for failed API calls
             timeout: Timeout for API calls in seconds (default: 120)
             chunk_size: Number of entries per batch (default: 15)
-            base_url: Optional custom API base URL (e.g. for Meganova/DeepSeek)
+            base_url: Optional custom OpenAI-compatible API base URL
         """
         # Hardcoded API key for local dev as requested (if not using custom service)
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         if not self.api_key:
-            logger.warning("No API key provided. Set OPENAI_API_KEY or MEGANOVA_API_KEY env var.")
+            logger.warning("No API key provided to the translation client.")
         
         self.model = model
         self.temperature = temperature
         self.max_retries = max_retries
         self.timeout = timeout
         self.chunk_size = chunk_size
+        self.extra_body = extra_body
         
         # Initialize OpenAI client with custom base_url if provided
         self.client = OpenAI(
@@ -401,6 +403,8 @@ Output only the JSON array with translations. Do not include explanations or mar
                 # Only add temperature if model supports it (gpt-5-mini doesn't support custom temperature)
                 if not self.model.startswith("gpt-5"):
                     api_params["temperature"] = self.temperature
+                if self.extra_body:
+                    api_params["extra_body"] = self.extra_body
                 
                 response = self.client.chat.completions.create(**api_params)
                 
@@ -578,7 +582,7 @@ Output only the JSON array with translations. Do not include explanations or mar
 class GPT4Translator:
     """
     Wrapper class for GPT-4 based translation with simplified process() interface.
-    Now supports generic OpenAI-compatible services (like DeepSeek via Meganova).
+    Supports generic OpenAI-compatible translation providers.
     """
     
     def __init__(
@@ -588,7 +592,8 @@ class GPT4Translator:
         source_language: str = "auto",
         model: str = "gpt-5-mini",
         chunk_size: int = 15,
-        base_url: Optional[str] = None
+        base_url: Optional[str] = None,
+        extra_body: Optional[Dict[str, Any]] = None,
     ):
         """
         Initialize GPT4Translator.
@@ -607,7 +612,8 @@ class GPT4Translator:
             api_key=api_key, 
             model=model, 
             chunk_size=chunk_size,
-            base_url=base_url
+            base_url=base_url,
+            extra_body=extra_body,
         )
     
     def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:

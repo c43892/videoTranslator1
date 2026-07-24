@@ -5,7 +5,7 @@
 
 # Future steps may require:
 # Step 2 - Vocal separation
-demucs>=4.0.0
+demucs==4.1.0
 # spleeter>=2.3.0
 
 # Step 3 - Transcription
@@ -16,6 +16,8 @@ ffmpeg-python>=0.2.0
 
 # Step 4 - Translation
 openai>=1.0.0
+azure-identity>=1.17.0
+azure-storage-blob>=12.22.0
 # deep-translator>=1.11.0
 # googletrans>=4.0.0
 
