@@ -1,4 +1,4 @@
-"""DurationMatcher v1 policy math (§7.1).
+"""DurationMatcher: preserve translated content and fit the original time window.
 
 Pure functions so the worker's fitting decisions are unit-testable without
 any media files. ``atempo`` is always generated/available — the legacy
@@ -19,7 +19,7 @@ class DurationPolicy:
     max_borrow_silence_ms: int = 500
     max_borrow_ratio: float = 0.20
     max_translation_compaction_attempts: int = 2
-    policy_version: str = "duration-v1"
+    policy_version: str = "duration-v2-force"
 
 
 class FitAction(StrEnum):
@@ -64,21 +64,13 @@ def decide_fit(
     compaction_attempts_used: int,
     policy: DurationPolicy = DurationPolicy(),
 ) -> FitDecision:
-    borrowed = borrowable_gap_ms(base_duration_ms, gap_to_next_ms, policy)
-    available = base_duration_ms + borrowed
-
-    if generated_duration_ms <= base_duration_ms - policy.duration_tolerance_ms:
-        return FitDecision(FitAction.PAD, available, 0, 1.0, 1.0)
+    # Keep legacy policy parameters in the interface for stored jobs/callers.
+    # Successful synthesis is never rejected or rewritten merely for its length.
+    if generated_duration_ms <= 0 or base_duration_ms <= 0:
+        raise ValueError("audio and target durations must be positive")
+    if generated_duration_ms < base_duration_ms - policy.duration_tolerance_ms:
+        return FitDecision(FitAction.PAD, base_duration_ms, 0, 1.0, 1.0)
     if generated_duration_ms <= base_duration_ms:
-        return FitDecision(FitAction.NATURAL, available, 0, 1.0, 1.0)
-
-    ratio = generated_duration_ms / available
-    if ratio <= 1.0:
-        return FitDecision(FitAction.BORROW, available, borrowed, ratio, 1.0)
-    if ratio <= policy.soft_max_tempo:
-        return FitDecision(FitAction.SPEED_UP, available, borrowed, ratio, atempo_factor(generated_duration_ms, available))
-    if compaction_attempts_used < policy.max_translation_compaction_attempts:
-        return FitDecision(FitAction.COMPACT, available, borrowed, ratio, 1.0)
-    if ratio <= policy.hard_max_tempo:
-        return FitDecision(FitAction.SPEED_UP, available, borrowed, ratio, atempo_factor(generated_duration_ms, available))
-    return FitDecision(FitAction.FAIL, available, borrowed, ratio, 1.0)
+        return FitDecision(FitAction.NATURAL, base_duration_ms, 0, 1.0, 1.0)
+    ratio = atempo_factor(generated_duration_ms, base_duration_ms)
+    return FitDecision(FitAction.SPEED_UP, base_duration_ms, 0, ratio, ratio)

@@ -1,0 +1,48 @@
+--- a/backend/videotranslator/media.py
++++ b/backend/videotranslator/media.py
+@@ -117,12 +117,22 @@
+         '-filter_complex', '[0:a][1:a][2:a]amix=inputs=3:duration=first:normalize=0,loudnorm=I=-16:TP=-1.5:LRA=11[a]',
+         '-map', '[a]', '-t', f'{duration:.6f}', '-ar', RATE, '-ac', 2, '-c:a', 'pcm_s16le', output])
+ 
+-def assemble(video, audio, output, metadata):
++def assemble(video, audio, output, metadata, subtitle_path=None, subtitle_language='en'):
+     video_stream = next(s for s in metadata['streams'] if s['codec_type'] == 'video')
+     copy = video_stream.get('codec_name') == 'h264' and video_stream.get('pix_fmt') == 'yuv420p'
+     encoding = ['-c:v', 'copy'] if copy else ['-c:v', 'libx264', '-preset', 'fast', '-crf', '20', '-pix_fmt', 'yuv420p']
+-    ffmpeg(input_args(video) + input_args(audio) + [
+-        '-map', '0:v:0', '-map', '1:a:0', *encoding, '-c:a', 'aac', '-b:a', '192k',
++    inputs = input_args(video) + input_args(audio)
++    subtitle_args = []
++    if subtitle_path is not None:
++        inputs += ['-protocol_whitelist', 'file,pipe', '-f', 'srt', '-i', subtitle_path]
++        language = {'zh': 'zho', 'en': 'eng'}.get(subtitle_language, 'und')
++        label = {'zh': '中文', 'en': 'English'}.get(subtitle_language, 'Translation')
++        subtitle_args = ['-map', '2:s:0', '-c:s', 'mov_text',
++                         '-metadata:s:s:0', f'language={language}',
++                         '-metadata:s:s:0', f'handler_name={label}',
++                         '-disposition:s:0', 'default']
++    ffmpeg(inputs + [
++        '-map', '0:v:0', '-map', '1:a:0', *subtitle_args, *encoding, '-c:a', 'aac', '-b:a', '192k',
+         '-movflags', '+faststart', '-t', str(float(metadata['format']['duration'])), output])
+     result = probe(output)
+     if abs(float(result['format']['duration']) - float(metadata['format']['duration'])) > 0.2:
+--- a/backend/videotranslator/pipeline.py
++++ b/backend/videotranslator/pipeline.py
+@@ -238,13 +238,16 @@
+         media.mix(storage.path(dialogue_key), storage.path(stems.music), storage.path(stems.effects), storage.path(mixed_key), duration)
+         stage('assemble', 92)
+         video_key = f'{prefix}/translated.mp4'
+-        media.assemble(video, storage.path(mixed_key), storage.path(video_key), metadata)
+         outputs = {'video': video_key, 'audio': mixed_key}
+         for field, label in [('source_text', 'original'), ('translation', 'translated')]:
+             for extension in ('srt', 'vtt'):
+                 key = f'{prefix}/{label}.{extension}'
+                 storage.path(key).write_text(media.subtitles(segments, field, extension == 'vtt'), encoding='utf-8')
+                 outputs[f'{label}_{extension}'] = key
++        media.assemble(video, storage.path(mixed_key), storage.path(video_key), metadata,
++                       subtitle_path=storage.path(outputs['translated_srt'])
++                       if any(s.translation.strip() for s in segments) else None,
++                       subtitle_language=job.target_language)
+         outputs['manifest'] = manifest_key
+         manifest['outputs'] = outputs
+         manifest['completed']['assemble'] = True

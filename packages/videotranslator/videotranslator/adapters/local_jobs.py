@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS jobs (
 
 class _SubprocessQueue:
     def __init__(self, db_path: str | Path, *, kind: str, module: str, max_concurrent: int = 1):
+        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(str(db_path), check_same_thread=False)
         self._db.row_factory = sqlite3.Row
         self._db.executescript(_SCHEMA)

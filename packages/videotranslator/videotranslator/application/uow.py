@@ -105,11 +105,16 @@ class CancelResultView:
 class JobFundingUnitOfWork:
     """Owns the transaction boundary for charge/enqueue/cancel/fail (§6.5)."""
 
-    def __init__(self, store: Store, pricing: PricingConfig, cost: CostPolicy, *, max_active_jobs_per_user: int = 1):
+    def __init__(self, store: Store, pricing: PricingConfig, cost: CostPolicy, *, max_active_jobs_per_user: int = 1, processing_available: bool = True):
         self._store = store
         self._pricing = pricing
         self._cost = cost
         self._max_active = max_active_jobs_per_user
+        self.processing_available = processing_available
+
+    def require_processing(self) -> None:
+        if not self.processing_available:
+            raise DomainError("processing_unavailable", code=ErrorCode.PROCESSING_UNAVAILABLE)
 
     # ------------------------------------------------------------------
     # shared charge path (§8.3 steps 1-8)
@@ -121,6 +126,7 @@ class JobFundingUnitOfWork:
         The caller guarantees ``job`` was read in this same transaction and
         is in a chargeable state (inspecting / awaiting_*).
         """
+        self.require_processing()
         user = tx.get(User, job.owner_user_id)
         if user is None:
             raise NotFound(f"user {job.owner_user_id}")
@@ -363,30 +369,63 @@ class JobFundingUnitOfWork:
         *,
         error_code: ErrorCode,
         error_message: str = "",
-        refund: bool,
+        refund: bool = True,
         retry_allowed: bool = False,
         retry_window_ms: int = 0,
         actual_gpu_seconds: int | None = None,
         now: int = 0,
     ) -> Job:
-        """Terminal failure with optional refund and retry metadata (§4.4, §3.5)."""
+        """Fail and restore the actual job debit to spendable account balance.
+
+        ``refund`` is retained for old callers but cannot suppress this policy.
+        Uncharged inspections restore nothing. No payment gateway is involved.
+        """
         now = now or now_ms()
         with self._store.transaction() as tx:
             job = tx.get(Job, job_id)
             if job is None:
                 raise NotFound(f"job {job_id}")
-            if job.status in (JobStatus.FAILED, JobStatus.CANCELLED, JobStatus.EXPIRED):
+            if job.status == JobStatus.FAILED:
+                if job.refund_status != RefundStatus.COMPLETED:
+                    job.refund_status = self._refund_tx(tx, job, now)
+                    tx.put(job, job.job_id)
+                return job
+            if job.status in (JobStatus.SUCCEEDED, JobStatus.CANCELLED, JobStatus.EXPIRED):
                 return job
             self._move(tx, job, JobStatus.FAILED)
             job.error_code = error_code.value
             job.error_message = error_message[:500]
             job.completed_at = now
-            job.refund_status = self._refund_tx(tx, job, now) if refund else RefundStatus.NOT_APPLICABLE
+            job.refund_status = self._refund_tx(tx, job, now)
             job.retry_allowed = retry_allowed
             if retry_allowed:
                 job.retry_expires_at = now + retry_window_ms
             self._release_capacity_and_settle(tx, job, now, actual_gpu_seconds=actual_gpu_seconds)
             tx.put(job, job.job_id)
+            return tx.get(Job, job_id)
+
+    def invalidate_simulated_result(self, job_id: str, *, output_key: str, now: int = 0) -> Job:
+        """Correct a verified legacy placeholder without treating late failures
+        as permission to refund genuine successful work. Caller checks bytes.
+        """
+        now = now or now_ms()
+        with self._store.transaction() as tx:
+            job = tx.get(Job, job_id)
+            if job is None:
+                raise NotFound(job_id)
+            if (job.status != JobStatus.SUCCEEDED or job.output_object_key != output_key
+                    or not (job.backend_job_id or "").startswith("fake-")):
+                return job
+            # Explicit administrative correction, not a normal backend event.
+            job.status = JobStatus.FAILED
+            job.output_object_key = None
+            job.output_expires_at = None
+            job.progress_percent = 0
+            job.error_code = ErrorCode.PROCESSING_UNAVAILABLE.value
+            job.error_message = "Simulated backend produced a placeholder, not translated media."
+            job.retry_allowed = False
+            job.refund_status = self._refund_tx(tx, job, now)
+            tx.put(job, job_id)
             return tx.get(Job, job_id)
 
     def confirm_cancelled(self, job_id: str, *, ran: bool, actual_gpu_seconds: int | None = None, now: int = 0) -> Job:
@@ -425,20 +464,26 @@ class JobFundingUnitOfWork:
     # ------------------------------------------------------------------
 
     def _refund_tx(self, tx: Tx, job: Job, now: int) -> RefundStatus:
-        if not job.charged_ledger_entry_id or job.quoted_point_units <= 0:
+        if not job.charged_ledger_entry_id:
             return RefundStatus.NOT_APPLICABLE
         key = job_refund_key(job.job_id)
         existing = tx.get(LedgerEntry, ledger_id_for(key))
         if existing is not None:
+            job.balance_returned_cents, job.balance_returned_at = existing.delta_units, existing.created_at
             return RefundStatus.COMPLETED
+        charge = tx.get(LedgerEntry, job.charged_ledger_entry_id)
+        if (charge is None or charge.user_id != job.owner_user_id or charge.job_id != job.job_id
+                or charge.entry_type != LedgerEntryType.JOB_CHARGE or charge.delta_units >= 0):
+            raise InvalidTransition("job charge ledger is invalid")
+        returned_units = -charge.delta_units
         user = tx.get(User, job.owner_user_id)
         entry = LedgerEntry(
             ledger_entry_id=ledger_id_for(key),
             user_id=job.owner_user_id,
-            delta_units=job.quoted_point_units,
+            delta_units=returned_units,
             entry_type=LedgerEntryType.JOB_REFUND,
             job_id=job.job_id,
-            balance_after_units=user.point_balance_units + job.quoted_point_units,
+            balance_after_units=user.point_balance_units + returned_units,
             idempotency_key=key,
             created_at=now,
         )
@@ -448,6 +493,7 @@ class JobFundingUnitOfWork:
         if user.point_balance_units >= 0 and user.billing_status == "hold":
             user.billing_status = "clear"
         tx.put(user, user.user_id)
+        job.balance_returned_cents, job.balance_returned_at = returned_units, now
         return RefundStatus.COMPLETED
 
     def _release_capacity_and_settle(self, tx: Tx, job: Job, now: int, *, actual_gpu_seconds: int | None) -> None:
@@ -496,6 +542,8 @@ class BillingUnitOfWork:
             payment = tx.get(Payment, event.payment_id)
             if payment is None:
                 raise NotFound(f"payment {event.payment_id}")
+            if payment.provider != event.provider:
+                raise DomainError("payment provider mismatch", code=ErrorCode.PAYMENT_MISMATCH)
             event.processing_status = PaymentEventStatus.PROCESSED
             event.processed_at = now
             tx.put(event, event.event_key)

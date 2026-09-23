@@ -1,0 +1,18 @@
+# Apply alongside the recovered engine's compose.yaml after building
+# deploy/Dockerfile.engine-patched and deploy/Dockerfile.tts-patched.
+services:
+  api:
+    image: videotranslator-app:studio
+    environment:
+      STUDIO_PUBLIC_URL: ${STUDIO_PUBLIC_URL:-http://localhost:8090/}
+      TRANSCRIPTION_PROVIDER: ${TRANSCRIPTION_PROVIDER:-whisper}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      SCRIBE_MODEL: ${SCRIBE_MODEL:-scribe_v2}
+  worker:
+    image: videotranslator-app:studio
+    environment:
+      TRANSCRIPTION_PROVIDER: ${TRANSCRIPTION_PROVIDER:-whisper}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      SCRIBE_MODEL: ${SCRIBE_MODEL:-scribe_v2}
+  tts:
+    image: videotranslator-indextts2:studio

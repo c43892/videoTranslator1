@@ -138,6 +138,7 @@ class ErrorCode(StrEnum):
     DURATION_FIT_FAILED = "duration_fit_failed"
     SUBMIT_FAILED = "submit_failed"
     BACKEND_FAILED = "backend_failed"
+    PROCESSING_UNAVAILABLE = "processing_unavailable"
     EXECUTION_TIMEOUT = "execution_timeout"
     UPLOAD_INCOMPLETE = "upload_incomplete"
     PAYMENT_MISMATCH = "payment_mismatch"

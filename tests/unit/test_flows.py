@@ -68,6 +68,25 @@ class TestPayments:
             assert u.point_balance_units == 900
             assert u.billing_status == "clear"
 
+    def test_inbox_takes_over_expired_lease(self, container, user):
+        """A processor that dies after claiming must not strand the points."""
+        _, key = self._buy(container)
+        with container.store.transaction() as tx:  # state a crashed owner leaves behind
+            event = tx.get(PaymentEvent, key)
+            event.processing_status = PaymentEventStatus.PROCESSING
+            event.lease_owner = "dead-worker"
+            event.lease_expires_at = NOW + 60_000
+            tx.put(event, key)
+
+        assert container.inbox.process_due(now=NOW) == 0  # lease still live: hands off
+        with container.store.transaction() as tx:
+            assert tx.get(User, "u1").point_balance_units == 0
+
+        assert container.inbox.process_due(now=NOW + 61_000) == 1  # lease expired: taken over
+        with container.store.transaction() as tx:
+            assert tx.get(User, "u1").point_balance_units == 1000
+            assert len(tx.query(LedgerEntry, where=("user_id", "==", "u1"))) == 1
+
     def test_paypal_capture_posts_points(self, container, user):
         session = container.billing.create_session("u1", package_id="points_10_v1", provider="paypal", now=NOW)
         key = container.billing.capture_paypal(session.provider_order_id, "u1", now=NOW)
@@ -119,6 +138,23 @@ class TestDispatcherCancelRace:
             outbox = tx.get(JobOutbox, "job-submit:job_t1:1")
             assert outbox.status == OutboxStatus.COMPLETED
             assert outbox.backend_job_id is not None
+
+    def test_expired_lease_on_submitting_job_is_taken_over(self, container, user):
+        """A dispatcher that dies after claiming must not strand a charged job."""
+        give_balance(container, "u1", 500)
+        make_job_via_inspection(container)
+        # crash right after the claim: job SUBMITTING, outbox PROCESSING, never submitted
+        assert container.dispatcher._claim_job_outbox(NOW, 10) == ["job-submit:job_t1:1"]
+        assert job_status(container, "job_t1") == JobStatus.SUBMITTING
+
+        assert container.dispatcher.dispatch_due_jobs(now=NOW) == 0  # lease still live
+
+        later = NOW + 61_000
+        assert container.dispatcher.dispatch_due_jobs(now=later) == 1  # taken over
+        assert job_status(container, "job_t1") == JobStatus.PROVISIONING
+        with container.store.transaction() as tx:
+            assert tx.get(JobOutbox, "job-submit:job_t1:1").status == OutboxStatus.COMPLETED
+            assert tx.get(User, "u1").point_balance_units == 400  # charged exactly once
 
     def test_submit_failure_retries_then_dead_letters(self, container, user):
         give_balance(container, "u1", 500)

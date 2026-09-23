@@ -1,0 +1,27 @@
+diff --git a/backend/videotranslator/transcription.py b/backend/videotranslator/transcription.py
+index bd85d20..0a82455 100644
+--- a/backend/videotranslator/transcription.py
++++ b/backend/videotranslator/transcription.py
+@@ -49,6 +49,13 @@ def timed_interval(item, duration):
+ def attach_speakers(transcript, diarization, duration):
+     if not isinstance(transcript.get('words'), list) or not isinstance(diarization.get('segments'), list):
+         raise ProviderError('OpenAI response is missing word timing or speaker segments')
++    # Whisper sometimes emits empty alignment entries between real words.
++    # They carry no speech text and must not fail an otherwise valid transcript.
++    # Keep invalid types as errors and preserve every nonempty word/timestamp.
++    empty_words = sum(isinstance(w, dict) and isinstance(w.get('word'), str)
++                      and not w['word'].strip() for w in transcript['words'])
++    transcript = {**transcript, 'words': [w for w in transcript['words']
++        if not (isinstance(w, dict) and isinstance(w.get('word'), str) and not w['word'].strip())]}
+     turns = []
+     for turn in diarization['segments']:
+         start, end = timed_interval(turn, duration)
+@@ -102,7 +109,7 @@ def attach_speakers(transcript, diarization, duration):
+     return {'text': transcript.get('text', ''), 'language_code': transcript.get('language', ''),
+             'words': words, 'speaker_assignment': {'method': 'temporal_overlap', 'unresolved_words': unresolved,
+                                                    'boundary_tolerance_words': boundary_tolerance,
+-                                                   'zero_duration_words': zero_duration}}
++                                                   'zero_duration_words': zero_duration, 'empty_alignment_entries': empty_words}}
+ 
+ 
+ class OpenAISpeakerDiarizer:

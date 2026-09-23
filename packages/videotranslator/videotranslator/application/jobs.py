@@ -78,6 +78,15 @@ class JobService:
         terms_version: str = "",
         now: int = 0,
     ) -> UploadTicket:
+        session = self.prepare_upload(user_id, filename=filename, size_bytes=size_bytes,
+            target_language=target_language, file_fingerprint=file_fingerprint, now=now)
+        with self._store.transaction() as tx:
+            tx.insert(session, session.upload_id)
+        return self.upload_ticket(session)
+
+    def prepare_upload(self, user_id: str, *, filename: str, size_bytes: int,
+                       target_language: str, file_fingerprint: str = "", now: int = 0) -> UploadSession:
+        """Build a reservation so a caller can atomically persist it with its draft."""
         now = now or now_ms()
         if size_bytes <= 0 or size_bytes > self._settings.max_upload_bytes:
             raise DomainError("invalid file size", code=ErrorCode.MEDIA_UNSUPPORTED)
@@ -98,10 +107,11 @@ class JobService:
             last_activity_at=now,
             created_at=now,
         )
-        with self._store.transaction() as tx:
-            tx.insert(session, upload_id)
-        url = self._storage.create_upload_url(object_key, self._settings.sas_ttl_seconds)
-        return UploadTicket(upload_id, job_id, url, object_key, session.sas_expires_at)
+        return session
+
+    def upload_ticket(self, session: UploadSession) -> UploadTicket:
+        url = self._storage.create_upload_url(session.object_key, self._settings.sas_ttl_seconds)
+        return UploadTicket(session.upload_id, session.reserved_job_id, url, session.object_key, session.sas_expires_at)
 
     def renew_upload(self, upload_id: str, user_id: str, *, now: int = 0) -> UploadTicket:
         now = now or now_ms()
@@ -240,7 +250,9 @@ class JobService:
         now = now or now_ms()
         with self._store.transaction() as tx:
             source = self._owned_job(tx, source_job_id, user_id)
-            if source.status != JobStatus.FAILED or not source.retry_allowed:
+            self._funding.require_processing()
+            recovered_preview = source.error_code == ErrorCode.PROCESSING_UNAVAILABLE.value
+            if source.status != JobStatus.FAILED or not (source.retry_allowed or recovered_preview):
                 raise DomainError("job is not retryable", code=ErrorCode.RETRY_NOT_ALLOWED)
             if source.retry_expires_at is not None and now > source.retry_expires_at:
                 raise DomainError("retry window expired", code=ErrorCode.RETRY_NOT_ALLOWED)
@@ -300,6 +312,22 @@ class JobService:
             raise DomainError("result expired", code=ErrorCode.NOT_FOUND)
         return self._storage.create_download_url(job.output_object_key, self._settings.sas_ttl_seconds)
 
+    def recover_simulated_results(self) -> int:
+        """Repair old local-preview successes only when provenance AND bytes match."""
+        if self._settings.profile not in {"local-ui", "local-full"}:
+            return 0
+        with self._store.transaction() as tx:
+            jobs = tx.query(Job, where=("status", "==", JobStatus.SUCCEEDED))
+        repaired = 0
+        for job in jobs:
+            if not (job.backend_job_id or "").startswith("fake-") or not job.output_object_key:
+                continue
+            path = self._storage.local_path(job.output_object_key)
+            if path and path.is_file() and path.stat().st_size == 11 and path.read_bytes() == b"fake-result":
+                self._funding.invalidate_simulated_result(job.job_id, output_key=job.output_object_key)
+                repaired += 1
+        return repaired
+
     def delete_assets(self, job_id: str, user_id: str, *, now: int = 0) -> Job:
         now = now or now_ms()
         with self._store.transaction() as tx:
@@ -313,6 +341,7 @@ class JobService:
             tx.put(job, job_id)
         if job.output_object_key:
             self._storage.delete(job.output_object_key)
+            self._storage.delete(job.output_object_key + '.vtt')
         if not live_refs:
             self._storage.delete(job.input_object_key)
         return job

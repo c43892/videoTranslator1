@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5f5f0">
+  <title>VideoTranslator · Studio</title>
+  <link rel="stylesheet" href="/assets/style.css?v=20260923-credit-copy">
+  <script type="module" src="/assets/app.js?v=20260923-credit-copy"></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="/" aria-label="VideoTranslator"><span class="brand-icon">v<span>t</span></span><span>VideoTranslator<small>STUDIO</small></span></a>
+    <div class="sidebar-main"><nav class="workspace-nav"><button id="sidebar-new" type="button" class="nav-item" aria-current="page" disabled><span aria-hidden="true">✦</span><span data-i18n="currentConversation">Conversation</span></button><button id="history-open" type="button" class="nav-item" disabled><span aria-hidden="true">☷</span><span data-i18n="historyTitle">Task history</span><span id="sidebar-task-count" class="nav-count" hidden>0</span></button></nav></div>
+  </aside>
+  <main>
+    <header>
+      <div class="header-context"><span id="page-label" class="header-label" data-i18n="assistant">Translation assistant</span><button id="restart" class="text-button" data-i18n="newChat" hidden>＋ New conversation</button></div>
+      <div class="header-actions">
+        <div class="wallet"><span id="balance-label" data-i18n="balance">Balance</span><strong id="balance-value" aria-live="polite">—</strong><button id="topup" class="chip" data-i18n="topup" disabled>Top up</button></div>
+        <select id="locale" aria-label="Conversation language"><option value="auto">Auto</option><option value="zh">中文</option><option value="en">English</option></select>
+        <button id="signin" class="text-button" data-i18n="signIn">Sign in</button>
+        <details id="account-menu" class="account-menu" hidden><summary data-i18n="accountTitle">Your account</summary><div class="account-popover"><span id="account-name"></span><button id="refresh-balance" class="text-button" data-i18n="refreshBalance">Refresh</button><button id="signout" class="text-button" data-i18n="signOut" hidden>Sign out</button></div></details>
+      </div>
+    </header>
+    <div class="scroll-area" id="scroll-area">
+      <section id="history-view" class="history-view" hidden aria-labelledby="history-title">
+        <div class="history-heading"><div><h1 id="history-title" data-i18n="historyTitle">Task history</h1><p data-i18n="historyDescription">Your submitted video and audio translations.</p></div><button id="history-close" class="chip" data-i18n="backToChat">Back to conversation</button></div>
+        <button id="history-back-list" class="text-button back-list" data-i18n="backToList" hidden>Back to task list</button>
+        <p id="history-error" class="error" role="alert" hidden></p>
+        <div id="history-list-panel">
+        <div class="history-toolbar"><label><span data-i18n="taskStatus">Status</span><select id="history-filter"><option value="all" data-i18n="historyAll">All</option><option value="queued" data-i18n="statusQueued">Queued</option><option value="running" data-i18n="statusRunning">In progress</option><option value="failed" data-i18n="statusFailed">Error</option><option value="succeeded" data-i18n="statusSucceeded">Completed</option><option value="waiting" data-i18n="statusWaiting">Waiting</option><option value="cancelled" data-i18n="statusCancelled">Cancelled</option><option value="expired" data-i18n="statusExpired">Expired</option></select></label><button id="history-refresh" class="text-button" data-i18n="refreshBalance">Refresh</button><span id="history-count"></span></div>
+        <p id="history-empty" class="notice" hidden></p>
+        <div class="history-column-head" aria-hidden="true"><span data-i18n="taskName">Task</span><span data-i18n="taskStatus">Status</span><span data-i18n="createdTime">Created</span><span data-i18n="taskActions">Actions</span></div>
+        <div id="history-list" class="history-list"></div></div><section id="history-detail" class="history-detail" aria-live="polite" hidden></section>
+      </section>
+      <div class="conversation">
+        <section class="intro"><h1 data-i18n="simpleTitle">What would you like to translate?</h1><p class="intro-subtitle" data-i18n="simpleSubtitle">Add a YouTube link, video or audio file.</p><p class="intro-rate" data-i18n="rateNotice">Video and audio · $0.10 USD / minute</p></section>
+        <div id="demo" class="notice" hidden data-i18n="demo">Preview environment · Translation processing is simulated.</div>
+        <div id="verify-panel" class="notice" hidden><p data-i18n="email_not_verified">Please verify your email before continuing.</p><button id="resend-verification" class="chip" data-i18n="resendVerification">Resend verification</button><button id="check-verification" class="chip" data-i18n="checkVerification">I have verified</button><p id="verification-status" role="status"></p></div>
+        <div id="messages" role="log" aria-live="polite" aria-relevant="additions"></div>
+        <section id="actions" aria-live="polite"></section>
+        <div id="error" class="error" role="alert" hidden></div>
+      </div>
+    </div>
+    <footer class="composer-wrap"><form id="composer"><button type="button" id="attach" class="attach" aria-label="Upload video">＋</button><textarea id="message" rows="1" maxlength="2000" data-placeholder="placeholder" placeholder="Paste a YouTube link, or tell me what you have in mind…" aria-label="Message"></textarea><button id="send" type="submit" aria-label="Send message">↑</button></form><p class="composer-hint" data-i18n="hint">Choose an option or write naturally. Nothing starts until you confirm.</p></footer>
+    <input id="file" type="file" accept="video/*,audio/*,.mp4,.mkv,.mov,.webm,.avi,.m4v,.mp3,.wav,.m4a,.flac,.aac,.ogg" hidden>
+  </main>
+  <dialog id="auth-dialog" aria-labelledby="auth-title"><div class="dialog-heading"><h2 id="auth-title" data-i18n="accountTitle">Your account</h2><button class="text-button" data-close-dialog="auth-dialog" data-i18n="close">Close</button></div>
+    <div class="auth-language"><span id="auth-language-label" data-i18n="interfaceLanguage">Language</span><select id="auth-locale" aria-labelledby="auth-language-label" aria-label="Language"></select></div>
+    <p id="auth-unconfigured" class="notice" data-i18n="authUnavailable">Sign-in is not configured yet.</p>
+    <button id="google-signin" class="primary wide" data-i18n="googleSignIn">Continue with Google</button>
+    <details class="auth-help"><summary data-i18n="signInHelp">Trouble signing in?</summary><p data-i18n="authBrowserHelp">If Google sign-in cannot open or finish in an in-app browser, open this page in Chrome or Edge, or use email below. Browser sessions are separate.</p></details>
+    <p class="divider" data-i18n="orEmail">or use email</p>
+    <form id="email-form"><label><span data-i18n="email">Email</span><input id="auth-email" type="email" autocomplete="email" required maxlength="254"></label><label><span data-i18n="password">Password</span><input id="auth-password" type="password" autocomplete="current-password" required minlength="6" maxlength="128"></label><label class="check-label"><input id="auth-register" type="checkbox"><span data-i18n="createAccount">Create a new account</span></label><button id="email-submit" class="primary wide" data-i18n="continueAccount">Continue</button></form>
+    <button id="reset-password" class="text-button" data-i18n="resetPassword">Reset password</button><p id="auth-notice" role="status"></p><p id="auth-error" class="dialog-error" role="alert"></p>
+  </dialog>
+  <dialog id="topup-dialog" aria-labelledby="topup-title"><div class="dialog-heading"><h2 id="topup-title" data-i18n="topupTitle">Top up your balance</h2><button class="text-button" data-close-dialog="topup-dialog" data-i18n="close">Close</button></div>
+    <p><span data-i18n="currentBalance">Current balance</span> · <strong id="topup-balance">—</strong></p>
+    <div id="topup-form">
+      <p data-i18n="rateNotice">Video and audio · $0.10 USD / minute</p><p id="payment-unconfigured" class="notice" data-i18n="paymentsUnavailable" hidden>Payments are not configured yet.</p><p id="payment-sandbox" class="notice" data-i18n="paymentSandbox" hidden>Test payments only. No real money is charged.</p>
+      <label><span data-i18n="topupAmount">Amount</span><select id="topup-package"></select></label><label class="check-label"><input id="checkout-agree" type="checkbox"><span data-i18n="noRefundAgreement">I understand that top-ups are non-refundable.</span></label>
+      <p data-i18n="failureCreditPolicy">Failed task charges return to your account balance for future use.</p><div class="payment-methods"><button id="pay-stripe" class="primary" disabled>Stripe</button><button id="pay-paypal" class="chip" disabled>PayPal</button></div>
+    </div>
+    <p id="payment-status" role="status" aria-live="polite"></p>
+    <p id="payment-help" class="payment-help" hidden></p>
+    <button id="payment-retry" class="chip" data-i18n="paymentRetry" hidden>Check again</button>
+    <button id="payment-done" class="primary" data-i18n="paymentDone" hidden>Continue translation</button>
+  </dialog>
+</body>
+</html>

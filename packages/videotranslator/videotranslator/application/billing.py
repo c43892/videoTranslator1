@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
+from urllib.parse import urlencode
 
 from ..docstore import Store
 from ..domain.enums import DomainError, ErrorCode, Forbidden, NotFound
@@ -49,6 +51,7 @@ class BillingService:
         success_url: str = "",
         cancel_url: str = "",
         now: int = 0,
+        idempotency_key: str = "",
     ) -> PaymentSession:
         now = now or now_ms()
         gateway = self._gateways.get(provider)
@@ -56,7 +59,7 @@ class BillingService:
             raise DomainError(f"unknown provider {provider}", code=ErrorCode.NOT_FOUND)
         package = self._pricing.get_package(package_id)
         payment = Payment(
-            payment_id=new_id("pay"),
+            payment_id=("pay_" + hashlib.sha256(f"{user_id}:{idempotency_key}".encode()).hexdigest()[:24]) if idempotency_key else new_id("pay"),
             user_id=user_id,
             provider=provider,
             package_id=package.package_id,
@@ -65,18 +68,32 @@ class BillingService:
             point_units=package.point_units,
             created_at=now,
         )
+        with self._store.transaction() as tx:
+            existing = tx.get(Payment, payment.payment_id)
+            if existing:
+                if existing.provider != provider or existing.package_id != package_id:
+                    raise DomainError("payment request changed", code=ErrorCode.PAYMENT_MISMATCH)
+                if existing.redirect_url:
+                    return PaymentSession(payment_id=existing.payment_id, provider=provider,
+                        confirmation_mode=existing.confirmation_mode, redirect_url=existing.redirect_url,
+                        provider_order_id=existing.provider_order_id)
+            else:
+                tx.insert(payment, payment.payment_id)
         session = gateway.create_session(
             PaymentSessionRequest(
                 payment_id=payment.payment_id,
                 user_id=user_id,
                 package=package,
-                success_url=success_url,
+                success_url=success_url + ("&" if "?" in success_url else "?") + urlencode({"payment_id": payment.payment_id, "provider": provider}) if success_url else "",
                 cancel_url=cancel_url,
             )
         )
-        payment.provider_order_id = session.provider_order_id
         with self._store.transaction() as tx:
-            tx.insert(payment, payment.payment_id)
+            payment = tx.get(Payment, payment.payment_id)
+            payment.provider_order_id = session.provider_order_id
+            payment.redirect_url = session.redirect_url
+            payment.confirmation_mode = session.confirmation_mode
+            tx.put(payment, payment.payment_id)
         return session
 
     def get_payment(self, payment_id: str, user_id: str) -> Payment:
@@ -95,6 +112,8 @@ class BillingService:
         if gateway is None:
             raise DomainError(f"unknown provider {provider}", code=ErrorCode.NOT_FOUND)
         event = gateway.verify_webhook(headers, raw_body)
+        if event.event_type not in {"checkout.session.completed", "checkout.session.async_payment_succeeded", "PAYMENT.CAPTURE.COMPLETED", "capture.completed", "payment.completed"}:
+            return "ignored"
         return self._inbox_event(
             provider=provider,
             event_id=event.event_id,
@@ -109,6 +128,29 @@ class BillingService:
             },
             now=now,
         )
+
+    def reconcile_payment(self, payment_id: str, user_id: str) -> str | None:
+        """Recover a missed Stripe notification using its server-stored session.
+
+        Returns a verified inbox event, processed through the same atomic ledger
+        transaction as webhooks. A return URL alone is never proof of payment.
+        """
+        payment = self.get_payment(payment_id, user_id)
+        if payment.status != Payment.STATUS_PENDING or payment.provider != 'stripe' or not payment.provider_order_id:
+            return None
+        gateway = self._gateways.get('stripe')
+        if gateway is None:
+            raise NotFound('stripe not configured')
+        snapshot = gateway.get_payment(payment.provider_order_id)
+        if snapshot.status != 'completed':
+            return None
+        if (snapshot.payment_reference != payment.payment_id or snapshot.amount_minor != payment.amount_minor
+                or snapshot.currency != payment.currency):
+            raise DomainError('payment details mismatch', code=ErrorCode.PAYMENT_MISMATCH)
+        return self._inbox_event(provider='stripe', event_id='checkout-reconcile:'+payment.provider_order_id,
+            event_type='payment.completed', payment_id=payment.payment_id,
+            payload={'amount_minor': snapshot.amount_minor, 'currency': snapshot.currency,
+                     'provider_payment_id': snapshot.provider_payment_id}, now=now_ms())
 
     def capture_paypal(self, order_id: str, user_id: str, *, now: int = 0) -> str:
         """Server-side PayPal capture (§10.1); approval alone never posts points."""

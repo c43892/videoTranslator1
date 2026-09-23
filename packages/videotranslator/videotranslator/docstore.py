@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from .domain.enums import StaleVersion
+from .domain.conversation import Conversation
 from .domain.models import (
     CapacityCounter,
     CostBudgetPeriod,
@@ -45,6 +46,7 @@ __all__ = ["Store", "Tx", "MemoryStore", "SQLiteStore", "doc_version", "bump_ver
 _KINDS: dict[str, type[Document]] = {
     cls.COLLECTION: cls
     for cls in (
+        Conversation,
         User,
         UploadSession,
         Job,
@@ -180,6 +182,7 @@ class _OverlayTx:
 
 
 _ID_ATTRS: dict[str, tuple[str, ...]] = {
+    "conversations": ("conversation_id",),
     "users": ("user_id",),
     "upload_sessions": ("upload_id",),
     "jobs": ("job_id",),

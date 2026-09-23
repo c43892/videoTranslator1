@@ -111,6 +111,7 @@ class Job(Document):
     inspection_result_object_key: str | None = None
     stage: str = ""
     progress_percent: int = 0
+    warnings: list[str] = field(default_factory=list)
     input_object_key: str = ""
     output_object_key: str | None = None
     quoted_point_units: int = 0
@@ -126,6 +127,8 @@ class Job(Document):
     error_code: str | None = None
     error_message: str | None = None
     refund_status: RefundStatus = RefundStatus.NOT_APPLICABLE
+    balance_returned_cents: int = 0
+    balance_returned_at: int | None = None
     asset_cleanup_status: str = "pending"
     assets_deleted_at: int | None = None
     cancel_requested_at: int | None = None
@@ -169,6 +172,8 @@ class Payment(Document):
     payment_id: str = ""
     user_id: str = ""
     provider: str = ""
+    redirect_url: str = ""
+    confirmation_mode: str = ""
     provider_payment_id: str | None = None
     provider_order_id: str | None = None
     provider_capture_id: str | None = None
@@ -406,3 +411,4 @@ class BackendStatus:
     output_object_key: str | None = None
     started_at: int | None = None
     actual_gpu_seconds: int | None = None
+    warnings: list[str] = field(default_factory=list)

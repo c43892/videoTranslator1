@@ -11,6 +11,7 @@ import hashlib
 import hmac
 import json
 import time
+from decimal import Decimal
 from typing import Mapping
 
 from ..domain.enums import BackendError, FailureClass
@@ -47,7 +48,7 @@ class StripePaymentGateway:
                 "line_items[0][quantity]": "1",
                 "line_items[0][price_data][currency]": request.package.currency.lower(),
                 "line_items[0][price_data][unit_amount]": str(request.package.amount_minor),
-                "line_items[0][price_data][product_data][name]": f"{request.package.point_units} Points",
+                "line_items[0][price_data][product_data][name]": f"USD {request.package.point_units / 100:.2f} translation balance (non-refundable)",
             },
             timeout=30,
         )
@@ -64,12 +65,13 @@ class StripePaymentGateway:
 
     def verify_webhook(self, headers: Mapping[str, str], raw_body: bytes) -> PaymentEventData:
         header = headers.get("stripe-signature", "")
-        parts = dict(p.split("=", 1) for p in header.split(",") if "=" in p)
-        timestamp, signature = parts.get("t", ""), parts.get("v1", "")
+        parts = [p.strip().split("=", 1) for p in header.split(",") if "=" in p]
+        timestamp = next((v for k, v in parts if k == "t"), "")
+        signatures = [v for k, v in parts if k == "v1"]
         expected = hmac.new(
             self._webhook_secret.encode(), f"{timestamp}.".encode() + raw_body, hashlib.sha256
         ).hexdigest()
-        if not timestamp or not hmac.compare_digest(expected, signature):
+        if not timestamp.isdigit() or not any(hmac.compare_digest(expected, sig) for sig in signatures):
             raise BackendError("bad stripe signature", failure_class=FailureClass.PERMANENT)
         if abs(time.time() - int(timestamp)) > 300:
             raise BackendError("stale stripe webhook", failure_class=FailureClass.PERMANENT)
@@ -78,7 +80,7 @@ class StripePaymentGateway:
         return PaymentEventData(
             provider=self.provider,
             event_id=event["id"],
-            event_type=event.get("type", ""),
+            event_type=event.get("type", "") if obj.get("payment_status") == "paid" else "ignored",
             payment_id=obj.get("client_reference_id"),
             provider_payment_id=obj.get("payment_intent") or obj.get("id"),
             provider_capture_id=None,
@@ -89,6 +91,21 @@ class StripePaymentGateway:
 
     def get_payment(self, provider_payment_id: str) -> PaymentSnapshot:
         httpx = _httpx()
+        if provider_payment_id.startswith('cs_'):
+            resp = httpx.get(f'{self._base}/v1/checkout/sessions/{provider_payment_id}',
+                             auth=(self._key, ''), timeout=15)
+            if resp.status_code >= 400:
+                raise BackendError(f'stripe checkout lookup failed: {resp.status_code}')
+            data = resp.json()
+            if data.get('id') != provider_payment_id or data.get('mode') != 'payment':
+                raise BackendError('stripe checkout mismatch', failure_class=FailureClass.PERMANENT)
+            return PaymentSnapshot(
+                provider_payment_id=data.get('payment_intent') or provider_payment_id,
+                status='completed' if data.get('status') == 'complete' and data.get('payment_status') == 'paid' else 'pending',
+                amount_minor=int(data.get('amount_total', 0)),
+                currency=str(data.get('currency', '')).upper(),
+                payment_reference=data.get('client_reference_id'),
+            )
         resp = httpx.get(f"{self._base}/v1/payment_intents/{provider_payment_id}", auth=(self._key, ""), timeout=30)
         if resp.status_code >= 400:
             raise BackendError(f"stripe lookup failed: {resp.status_code}")
@@ -101,23 +118,17 @@ class StripePaymentGateway:
         )
 
     def refund(self, provider_payment_id: str, amount_minor: int) -> bool:
-        httpx = _httpx()
-        resp = httpx.post(
-            f"{self._base}/v1/refunds",
-            auth=(self._key, ""),
-            data={"payment_intent": provider_payment_id, "amount": str(amount_minor)},
-            timeout=30,
-        )
-        return resp.status_code < 400
+        raise BackendError("top-ups are non-refundable", failure_class=FailureClass.PERMANENT)
 
 
 class PayPalPaymentGateway:
     provider = "paypal"
 
-    def __init__(self, client_id: str, client_secret: str, *, base_url: str = "https://api-m.sandbox.paypal.com"):
+    def __init__(self, client_id: str, client_secret: str, *, base_url: str = "https://api-m.sandbox.paypal.com", webhook_id: str = ""):
         self._client_id = client_id
         self._client_secret = client_secret
         self._base = base_url
+        self._webhook_id = webhook_id
 
     def _token(self) -> str:
         httpx = _httpx()
@@ -141,6 +152,8 @@ class PayPalPaymentGateway:
                 "purchase_units": [
                     {
                         "reference_id": request.payment_id,
+                        "custom_id": request.payment_id,
+                        "description": "Translation balance (non-refundable)",
                         "amount": {
                             "currency_code": request.package.currency,
                             "value": f"{request.package.amount_minor / 100:.2f}",
@@ -161,7 +174,7 @@ class PayPalPaymentGateway:
         if resp.status_code >= 400:
             raise BackendError(f"paypal order failed: {resp.status_code}")
         data = resp.json()
-        approval = next(l["href"] for l in data["links"] if l["rel"] == "payer-action")
+        approval = next(l["href"] for l in data["links"] if l["rel"] in {"payer-action", "approve"})
         return PaymentSession(
             payment_id=request.payment_id,
             provider=self.provider,
@@ -185,8 +198,8 @@ class PayPalPaymentGateway:
         amount = capture["amount"]
         return PaymentSnapshot(
             provider_payment_id=data["id"],
-            status="completed" if data.get("status") == "COMPLETED" else "pending",
-            amount_minor=int(round(float(amount["value"]) * 100)),
+            status="completed" if capture.get("status") == "COMPLETED" else "pending",
+            amount_minor=int(Decimal(amount["value"]) * 100),
             currency=amount["currency_code"],
             user_id=unit.get("reference_id"),
             provider_capture_id=capture["id"],
@@ -194,16 +207,26 @@ class PayPalPaymentGateway:
 
     def verify_webhook(self, headers: Mapping[str, str], raw_body: bytes) -> PaymentEventData:
         event = json.loads(raw_body)
+        if not self._webhook_id:
+            raise BackendError("PayPal webhook ID not configured")
+        response = _httpx().post(f"{self._base}/v1/notifications/verify-webhook-signature",
+            headers={"Authorization": f"Bearer {self._token()}"}, timeout=30,
+            json={"auth_algo": headers.get("paypal-auth-algo"), "cert_url": headers.get("paypal-cert-url"),
+                "transmission_id": headers.get("paypal-transmission-id"), "transmission_sig": headers.get("paypal-transmission-sig"),
+                "transmission_time": headers.get("paypal-transmission-time"), "webhook_id": self._webhook_id,
+                "webhook_event": event})
+        if response.status_code >= 400 or response.json().get("verification_status") != "SUCCESS":
+            raise BackendError("bad PayPal signature", failure_class=FailureClass.PERMANENT)
         resource = event.get("resource", {})
         amount = resource.get("amount", {})
         return PaymentEventData(
             provider=self.provider,
             event_id=event["id"],
-            event_type=event.get("event_type", ""),
+            event_type=event.get("event_type", "") if resource.get("status") == "COMPLETED" else "ignored",
             payment_id=resource.get("custom_id") or resource.get("reference_id"),
             provider_payment_id=resource.get("id"),
             provider_capture_id=resource.get("id") if "CAPTURE" in event.get("event_type", "") else None,
-            amount_minor=int(round(float(amount.get("value", 0)) * 100)),
+            amount_minor=int(Decimal(amount.get("value", "0")) * 100),
             currency=amount.get("currency_code", "USD"),
             payload={},
         )
@@ -222,15 +245,9 @@ class PayPalPaymentGateway:
         return PaymentSnapshot(
             provider_payment_id=provider_payment_id,
             status="completed" if data.get("status") == "COMPLETED" else "pending",
-            amount_minor=int(round(float(unit["amount"]["value"]) * 100)),
+            amount_minor=int(Decimal(unit["amount"]["value"]) * 100),
             currency=unit["amount"]["currency_code"],
         )
 
     def refund(self, provider_payment_id: str, amount_minor: int) -> bool:
-        httpx = _httpx()
-        resp = httpx.post(
-            f"{self._base}/v2/payments/captures/{provider_payment_id}/refund",
-            headers={"Authorization": f"Bearer {self._token()}"},
-            timeout=30,
-        )
-        return resp.status_code < 400
+        raise BackendError("top-ups are non-refundable", failure_class=FailureClass.PERMANENT)

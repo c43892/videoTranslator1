@@ -54,6 +54,15 @@ class AzureMLJobBackend:  # pragma: no cover - cloud only
         from azure.ai.ml import command
 
         name = azure_job_name(idempotency_key, "vt")
+        # Get-or-create: the name is derived from the idempotency key, so a
+        # retry or lease takeover must adopt the existing job, never make a
+        # second one (§16.1).
+        try:
+            existing = self._ml.jobs.get(name)
+        except Exception:
+            existing = None
+        if existing is not None:
+            return BackendJobRef(existing.name, name)
         job = command(
             name=name,
             command=f"python -m videotranslator.worker.cli /specs/{name}.json",

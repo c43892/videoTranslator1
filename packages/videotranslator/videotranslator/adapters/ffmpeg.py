@@ -55,7 +55,7 @@ class FFmpegMediaInspector:
         has_audio = any(s.get("codec_type") == "audio" for s in streams)
         if not has_audio:
             raise DomainError("no audio track", code=ErrorCode.NO_AUDIO_TRACK)
-        has_video = any(s.get("codec_type") == "video" for s in streams)
+        has_video = any(s.get("codec_type") == "video" and not s.get("disposition", {}).get("attached_pic") for s in streams)
         return MediaInspectionResult(
             duration_ms=probe_duration_to_ms(raw),
             duration_probe_raw=raw,
@@ -96,7 +96,7 @@ class FFmpegAudioRenderer:
 
 
 class FFmpegDurationMatcher:
-    """Fits generated speech into the timeline per the v1 policy (§7.1).
+    """Fits generated speech into its original window without changing pitch.
 
     ``atempo`` is always generated/available — the legacy AudioStitcher bug
     passed target/generated and slowed long speech down even further.
@@ -116,7 +116,7 @@ class FFmpegDurationMatcher:
         elif decision.action == FitAction.BORROW:
             filters = f"atrim=0:{decision.available_duration_ms / 1000:.3f}"
         elif decision.action == FitAction.SPEED_UP:
-            filters = f"{self._atempo_chain(decision.atempo)},atrim=0:{decision.available_duration_ms / 1000:.3f}"
+            filters = f"{self._atempo_chain(decision.atempo)},apad,atrim=0:{decision.available_duration_ms / 1000:.3f}"
         else:  # COMPACT / FAIL are pipeline-level decisions, not renderable here
             raise DomainError("generated audio exceeds soft tempo limit", code=ErrorCode.DURATION_FIT_FAILED)
 
@@ -128,12 +128,12 @@ class FFmpegDurationMatcher:
 
     @staticmethod
     def _atempo_chain(ratio: float) -> str:
-        # One atempo filter accepts 0.5–100; chain anyway for extreme ratios.
+        # Keep every stage <= 2 to avoid atempo sample skipping at higher ratios.
         parts: list[str] = []
         remaining = ratio
-        while remaining > 4.0:
-            parts.append("atempo=4.0")
-            remaining /= 4.0
+        while remaining > 2.0:
+            parts.append("atempo=2.0")
+            remaining /= 2.0
         parts.append(f"atempo={remaining:.5f}")
         return ",".join(parts)
 

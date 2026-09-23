@@ -1,0 +1,388 @@
+--- a/backend/videotranslator/config.py
++++ b/backend/videotranslator/config.py
+@@ -10,6 +10,10 @@
+     storage_root: str = '/data'
+     mvsep_api_key: str = ''
+     openai_api_key: str = ''
++    elevenlabs_api_key: str = ''
++    transcription_provider: Literal['whisper', 'scribe'] = 'whisper'
++    elevenlabs_base_url: str = 'https://api.elevenlabs.io/v1'
++    scribe_model: str = 'scribe_v2'
+     deepseek_api_key: str = ''
+     mvsep_base_url: str = 'https://de2.mvsep.com/api'
+     separation_provider: Literal['demucs', 'mvsep'] = 'demucs'
+@@ -35,7 +39,7 @@
+     youtube_download_timeout_seconds: int = 1800
+ 
+     def missing_keys(self):
+-        required = ['OPENAI_API_KEY', 'DEEPSEEK_API_KEY']
++        required = ['ELEVENLABS_API_KEY' if self.transcription_provider == 'scribe' else 'OPENAI_API_KEY', 'DEEPSEEK_API_KEY']
+         if self.separation_provider == 'mvsep':
+             required.insert(0, 'MVSEP_API_KEY')
+         return [name for name in required
+@@ -44,9 +48,13 @@
+     def separation_label(self):
+         return f'Demucs {self.demucs_model} · 本地 GPU' if self.separation_provider == 'demucs' else 'MVSep DnR v3'
+ 
++    def transcription_model(self):
++        return self.scribe_model if self.transcription_provider == 'scribe' else self.whisper_model
++
+     def pipeline_config(self):
+         return {k: getattr(self, k) for k in (
+             'separation_provider', 'demucs_model', 'demucs_segment_seconds',
++            'transcription_provider', 'scribe_model', 'elevenlabs_base_url',
+             'mvsep_base_url', 'openai_base_url', 'whisper_model', 'diarization_model', 'deepseek_base_url', 'deepseek_model',
+             'tts_max_text_tokens', 'speaker_reference_min_seconds', 'speaker_reference_max_seconds',
+             'emotion_reference_max_seconds', 'max_speedup')}
+--- a/backend/videotranslator/pipeline.py
++++ b/backend/videotranslator/pipeline.py
+@@ -31,7 +31,7 @@
+             manifest = {'schema_version': SCHEMA_VERSION, 'pipeline_version': PIPELINE_VERSION,
+                         'fingerprint': fingerprint, 'config': config.pipeline_config(),
+                         'providers': {'separation': config.separation_label(),
+-                                      'transcription': config.whisper_model, 'diarization': 'disabled',
++                                      'transcription': config.transcription_model(), 'diarization': 'disabled',
+                                       'translation': config.deepseek_model,
+                                       'synthesis': 'IndexTTS2 v2.0.0 / 830f6f8'},
+                         'completed': {}, 'segments': [], 'warnings': []}
+@@ -110,7 +110,9 @@
+             manifest['punctuation'] = punctuation_key
+         previous_segmentation = manifest.get('segmentation_version')
+         manifest['segmentation_version'] = SEGMENTATION_VERSION
+-        segments = segment_dialogue(words, config.emotion_reference_max_seconds)
++        events = transcript.get('audio_events', [])
++        manifest['audio_events'] = events
++        segments = segment_dialogue(words, config.emotion_reference_max_seconds, audio_events=events)
+         manifest['warnings'] = list(punctuation_warnings)
+         if not segments:
+             manifest['warnings'].append('未识别到可替换的对白，保留原音轨。')
+@@ -199,7 +201,7 @@
+ 
+         manifest['completion_policy'] = 'preserve_original_on_segment_review'
+         manifest['voice_reference_policy'] = 'current_original_segment_for_both_prompts'
+-        manifest['dialogue_policy'] = 'translated_and_explicit_fallback_only'
++        manifest['dialogue_policy'] = 'preserve_source_except_successful_dialogue'
+         manifest['warnings'].extend(
+             f'{s.id}（{s.start:.2f}–{s.end:.2f} 秒）未替换，已保留原对白：' + '; '.join(s.flags)
+             for s in segments if s.render_status == 'original')
+@@ -210,7 +212,7 @@
+         dialogue_key, mixed_key = f'{prefix}/dialogue-translated.wav', f'{prefix}/mixed.wav'
+         if segments:
+             media.dialogue_timeline(segments, storage, storage.path(dialogue_key), duration,
+-                                   original=storage.path(stems.dialogue))
++                                   original=storage.path(stems.dialogue), preserve_intervals=events)
+         else:
+             # No recognized text: retain the original speech instead of silence.
+             media.canonical_audio(storage.path(stems.dialogue), storage.path(dialogue_key))
+--- a/backend/videotranslator/segmentation.py
++++ b/backend/videotranslator/segmentation.py
+@@ -6,7 +6,7 @@
+ # Ignore decimal points and common English titles; include Japanese punctuation.
+ BOUNDARY = re.compile(r'[,;:!?，；：、。！？…][”’"\'」』）)]?$|(?<!\bDr)(?<!\bMr)(?<!\bMs)(?<!\bMrs)[.][”’"\'」』）)]?$')
+ CJK = re.compile(r'[\u3000-\u30ff\u3400-\u9fff\uff66-\uff9f]')
+-SEGMENTATION_VERSION = 'punctuation-min3-v3-local-reference'
++SEGMENTATION_VERSION = 'punctuation-min3-v4-audio-events'
+ 
+ 
+ def join_words(words: list[Word]) -> str:
+@@ -41,9 +41,15 @@
+     return max(w.end for w in group)-group[0].start
+ 
+ 
+-def segment_dialogue(words: list[Word], max_reference_seconds: float = 15) -> list[Segment]:
++def segment_dialogue(words: list[Word], max_reference_seconds: float = 15, audio_events=None) -> list[Segment]:
++    events = audio_events or []
++    def event_between(left, right):
++        return any(e['start'] < right[0].start and e['end'] > left[-1].end for e in events)
+     clauses, current = [], []
+     for word in words:
++        if current and event_between(current, [word]):
++            clauses.append(current)
++            current = []
+         current.append(word)
+         if BOUNDARY.search(word.text.strip()):
+             clauses.append(current)
+@@ -63,6 +69,8 @@
+         merged = False
+         for j in candidates:
+             left, right = sorted((i,j))
++            if event_between(groups[left], groups[right]):
++                continue
+             combined = groups[left] + groups[right]
+             groups[left:right+1] = [combined]
+             i = left
+--- a/backend/videotranslator/media.py
++++ b/backend/videotranslator/media.py
+@@ -65,59 +65,73 @@
+     filters.extend([f'aresample={RATE}', f'apad=whole_len={frames}', f'atrim=end_sample={frames}'])
+     ffmpeg(input_args(source) + ['-af', ','.join(filters), '-ar', RATE, '-ac', 2, '-c:a', 'pcm_s16le', output])
+ 
+-def dialogue_timeline(segments, storage, output, duration, original=None):
+-    """Disk-backed accumulation preserves overlapping speakers without loading a long film into RAM."""
++def dialogue_timeline(segments, storage, output, duration, original=None, preserve_intervals=None):
++    """Keep source sound by default; replace only successfully dubbed windows."""
+     frames = round(duration * RATE)
++    events = preserve_intervals or []
++    if original is None and (events or any(s.render_status == 'original' for s in segments)):
++        raise ValueError('Original dialogue is required for fallback/events')
++    output.parent.mkdir(parents=True, exist_ok=True)
+     with sf.SoundFile(output, 'w+', samplerate=RATE, channels=2, subtype='FLOAT') as out:
+         zero = np.zeros((RATE, 2), dtype=np.float32)
+         remaining = frames
+         while remaining:
+-            size = min(remaining, len(zero))
+-            out.write(zero[:size])
+-            remaining -= size
++            size = min(remaining, RATE); out.write(zero[:size]); remaining -= size
+         if original is not None:
+             with sf.SoundFile(original) as source:
+                 if source.samplerate != RATE or source.channels != 2:
+                     raise ValueError('Original dialogue must be canonical stereo audio')
+-                # Start from silence. ASR timestamps do not cover every breath or
+-                # word tail: retaining the whole stem leaks source speech in gaps.
+-                # Only explicitly flagged fallback windows may contain original voice.
+-                # Overlapping fallbacks overwrite the same samples, never sum them.
+-                for segment in segments:
+-                    if segment.render_status != 'original':
+-                        continue
+-                    offset, end = round(segment.start * RATE), round(segment.end * RATE)
+-                    if offset < 0 or end > frames + 2 or end < offset:
+-                        raise ValueError('Invalid original fallback interval')
+-                    if end == offset:
+-                        # A point-timed ASR word has no original samples to copy.
+-                        # Its text/flags stay in the manifest; other speech continues.
+-                        continue
+-                    source.seek(offset)
+-                    out.seek(offset)
+-                    remaining = min(end, frames) - offset
++                out.seek(0); remaining = frames
++                while remaining:
++                    data = source.read(min(RATE, remaining), dtype='float32', always_2d=True)
++                    if not len(data):
++                        break
++                    out.write(data); remaining -= len(data)
++        translated = []
++        # Clear all replacement regions BEFORE adding any translated audio so
++        # overlapping translations accumulate instead of erasing one another.
++        for segment in segments:
++            if segment.render_status != 'translated':
++                continue
++            info = sf.info(storage.path(segment.aligned_audio))
++            if info.samplerate != RATE or info.channels != 2:
++                raise ValueError('Aligned speech must be canonical stereo audio')
++            offset = round(segment.start * RATE)
++            if offset < 0 or offset + info.frames > frames + 2:
++                raise ValueError('Dialogue segment lies outside the video timeline')
++            count = min(info.frames, frames - offset)
++            translated.append((segment, offset, count))
++            out.seek(offset); remaining = count
++            while remaining:
++                size = min(remaining, RATE); out.write(zero[:size]); remaining -= size
++        # Explicit sound events and unsuccessful utterances preserve source
++        # samples, including any overlap. Copy (do not sum) overlapping ranges.
++        preserved = [(s.start, s.end) for s in segments if s.render_status == 'original']
++        preserved += [(e['start'], e['end']) for e in events]
++        if original is not None and preserved:
++            with sf.SoundFile(original) as source:
++                for start, end in preserved:
++                    offset, last = round(start * RATE), round(end * RATE)
++                    if offset < 0 or last > frames + 2 or last < offset:
++                        raise ValueError('Invalid original fallback/event interval')
++                    source.seek(offset); out.seek(offset); remaining = min(last, frames) - offset
+                     while remaining:
+                         data = source.read(min(RATE, remaining), dtype='float32', always_2d=True)
+                         if not len(data):
+-                            raise ValueError('Original dialogue is shorter than its fallback interval')
+-                        out.write(data)
+-                        remaining -= len(data)
+-        elif any(segment.render_status == 'original' for segment in segments):
+-            raise ValueError('Original dialogue is required for fallback segments')
+-        for segment in segments:
+-            if segment.render_status == 'original':
+-                continue
+-            data, rate = sf.read(storage.path(segment.aligned_audio), dtype='float32', always_2d=True)
+-            if rate != RATE:
+-                raise ValueError('Aligned speech has an unexpected sample rate')
+-            offset = round(segment.start * RATE)
+-            if offset < 0 or offset + len(data) > frames + 2:
+-                raise ValueError('Dialogue segment lies outside the video timeline')
+-            data = data[:max(0, frames-offset)]
+-            out.seek(offset)
+-            previous = out.read(len(data), dtype='float32', always_2d=True)
+-            out.seek(offset)
+-            out.write(previous + data)
++                            break
++                        out.write(data); remaining -= len(data)
++        for segment, offset, count in translated:
++            with sf.SoundFile(storage.path(segment.aligned_audio)) as dubbed:
++                position = offset; remaining = count
++                while remaining:
++                    data = dubbed.read(min(RATE, remaining), dtype='float32', always_2d=True)
++                    if not len(data):
++                        raise ValueError('Synthesized audio is shorter than declared')
++                    out.seek(position)
++                    previous = out.read(len(data), dtype='float32', always_2d=True)
++                    out.seek(position); out.write(previous + data)
++                    position += len(data); remaining -= len(data)
++
+ 
+ def mix(dialogue, music, effects, output, duration):
+     ffmpeg(input_args(dialogue) + input_args(music) + input_args(effects) + [
+--- a/backend/videotranslator/tasks.py
++++ b/backend/videotranslator/tasks.py
+@@ -8,7 +8,7 @@
+ from .domain import Cancelled, NeedsReview
+ from .storage import LocalStorage
+ from .providers import MVSeparator, DeepSeekTranslator, IndexSynthesizer
+-from .transcription import WhisperTranscriber
++from .scribe import create_transcriber
+ from .pipeline import Pipeline
+ from .punctuation import DeepSeekPunctuator
+ from .youtube import prepare_input
+@@ -112,7 +112,7 @@
+         source = prepare_input(job, cfg, storage, check_cancel, report)
+         if source and source.get('title'):
+             update(job_id, filename=source['title']+'.mp4')
+-        pipeline = Pipeline(cfg, storage, create_separator(cfg, storage), WhisperTranscriber(cfg, storage, check_cancel=check_cancel),
++        pipeline = Pipeline(cfg, storage, create_separator(cfg, storage), create_transcriber(cfg, storage, check_cancel=check_cancel),
+                             DeepSeekTranslator(cfg), IndexSynthesizer(cfg), DeepSeekPunctuator(cfg))
+         outputs = pipeline.run(job, report, check_cancel)
+         with Session.begin() as db:
+@@ -131,7 +131,7 @@
+     except Exception as exc:
+         # Never persist authorization headers, raw requests, or provider URLs.
+         message = f'{type(exc).__name__}: {str(exc)[:1200]}'
+-        for secret in (cfg.mvsep_api_key, cfg.openai_api_key, cfg.deepseek_api_key):
++        for secret in (cfg.mvsep_api_key, cfg.openai_api_key, cfg.elevenlabs_api_key, cfg.deepseek_api_key):
+             if secret:
+                 message = message.replace(secret, '[redacted]')
+         update(job_id, status='failed', error=message)
+--- /dev/null
++++ b/backend/videotranslator/scribe.py
+@@ -0,0 +1,93 @@
++"""ElevenLabs Scribe adapter: words and sound events, without speaker identity."""
++from pathlib import PurePosixPath
++import hashlib
++import json
++import httpx
++from . import media
++from .domain import ProviderError
++from .segmentation import join_words, parse_words
++from .transcription import timed_interval, WhisperTranscriber
++
++
++def normalize_scribe(data, duration):
++    if not isinstance(data, dict) or not isinstance(data.get('words'), list):
++        raise ProviderError('Scribe response has no timed words/events')
++    words, events = [], []
++    for item in data['words']:
++        if not isinstance(item, dict):
++            raise ProviderError('Scribe returned an invalid transcript entry')
++        kind = item.get('type')
++        if kind == 'spacing':
++            continue
++        if kind not in ('word', 'audio_event'):
++            raise ProviderError('Scribe returned an unknown entry type')
++        text = item.get('text')
++        if not isinstance(text, str):
++            raise ProviderError('Scribe returned invalid text')
++        if not text.strip():
++            continue
++        start, end = timed_interval(item, duration)
++        entry = {'text':text, 'start':start, 'end':end, 'type':kind}
++        if kind == 'audio_event':
++            events.append(entry)
++        else:
++            words.append(dict(entry, speaker_id=''))
++    result = {'words':words, 'audio_events':events, 'language_code':data.get('language_code',''),
++              'provider':'elevenlabs', 'speaker_identification':False}
++    # The provider's full transcript can include '(laughter)'. Only actual words
++    # belong in translation or punctuation requests. Raw JSON remains cached.
++    result['text'] = join_words(parse_words(result))
++    return result
++
++
++class ScribeTranscriber:
++    def __init__(self, config, storage, check_cancel=lambda:None):
++        self.config, self.storage, self.check_cancel = config, storage, check_cancel
++
++    def transcribe(self, audio):
++        self.check_cancel()
++        if not self.config.elevenlabs_api_key.strip():
++            raise ProviderError('Missing configuration: ELEVENLABS_API_KEY')
++        signature=hashlib.sha256(json.dumps({'model':self.config.scribe_model,
++            'base_url':self.config.elevenlabs_base_url, 'events':True, 'diarize':False}).encode()).hexdigest()[:16]
++        prefix=str(PurePosixPath(audio).parent/'recognition')
++        key=f'{prefix}/scribe-{signature}.json'
++        duration=float(media.probe(self.storage.path(audio))['format']['duration'])
++        if self.storage.exists(key):
++            data=self.storage.read_json(key)
++        else:
++            prepared=self.storage.path(f'{prefix}/scribe-input.flac')
++            if not prepared.exists():
++                prepared.parent.mkdir(parents=True,exist_ok=True)
++                partial=prepared.with_suffix('.partial.flac')
++                media.ffmpeg(media.input_args(self.storage.path(audio))+['-vn','-ar','16000','-ac','1','-c:a','flac',partial])
++                partial.replace(prepared)
++            self.check_cancel()
++            with httpx.Client(timeout=httpx.Timeout(60,read=1800)) as client, prepared.open('rb') as f:
++                response=client.post(self.config.elevenlabs_base_url.rstrip('/')+'/speech-to-text',
++                    headers={'xi-api-key':self.config.elevenlabs_api_key},
++                    data={'model_id':self.config.scribe_model, 'timestamps_granularity':'word',
++                          'tag_audio_events':'true', 'diarize':'false', 'no_verbatim':'false'},
++                    files={'file':('dialogue.flac',f,'audio/flac')})
++            # Do not log provider response bodies or authentication headers.
++            if response.status_code in (401,403):
++                raise ProviderError('ElevenLabs authentication/permission failed; check ELEVENLABS_API_KEY')
++            if response.status_code==402:
++                raise ProviderError('ElevenLabs account has insufficient transcription credit')
++            if not response.is_success:
++                raise ProviderError(f'ElevenLabs Scribe request failed (HTTP {response.status_code})')
++            try:
++                data=response.json()
++            except ValueError as exc:
++                raise ProviderError('ElevenLabs returned invalid JSON') from exc
++            normalize_scribe(data,duration)
++            self.storage.write_json(key,data)
++        self.check_cancel()
++        result=normalize_scribe(data,duration)
++        result['raw_responses']={'scribe':key}
++        return result
++
++
++def create_transcriber(config, storage, check_cancel=lambda:None):
++    cls=ScribeTranscriber if config.transcription_provider=='scribe' else WhisperTranscriber
++    return cls(config, storage, check_cancel=check_cancel)
+--- a/backend/videotranslator/api.py
++++ b/backend/videotranslator/api.py
+@@ -161,8 +161,8 @@
+     except (httpx.HTTPError, ValueError):
+         pass
+     return {'missing_keys': cfg.missing_keys(), 'tts': state,
+-            'providers': {'separation': cfg.separation_label(), 'transcription': cfg.whisper_model,
+-                          'diarization': cfg.diarization_model,
++            'providers': {'separation': cfg.separation_label(), 'transcription': cfg.transcription_model(),
++                          'diarization': 'disabled',
+                           'translation': cfg.deepseek_model, 'synthesis': 'IndexTTS2 · 本地 GPU'},
+             'limits': {'max_upload_mb': cfg.max_upload_mb, 'max_video_seconds': cfg.max_video_seconds},
+             'target_languages': [{'code': 'zh', 'name': '简体中文'}, {'code': 'en', 'name': 'English'}]}
+--- a/tests/test_media.py
++++ b/tests/test_media.py
+@@ -24,7 +24,7 @@
+     storage = LocalStorage(str(tmp_path))
+     for key in ('a.wav','b.wav'):
+         sf.write(storage.path(key), np.ones((48000,2))*.1,48000,subtype='FLOAT')
+-    segments = [Segment('a','a',1,2,'A',aligned_audio='a.wav'),Segment('b','b',1.5,2.5,'B',aligned_audio='b.wav')]
++    segments = [Segment('a','a',1,2,'A',aligned_audio='a.wav',render_status='translated'),Segment('b','b',1.5,2.5,'B',aligned_audio='b.wav',render_status='translated')]
+     media.dialogue_timeline(segments,storage,tmp_path/'timeline.wav',4)
+     data, sr = sf.read(tmp_path/'timeline.wav')
+     assert len(data) == 4*48000
+@@ -48,6 +48,6 @@
+     data,sr=sf.read(tmp_path/'timeline.wav')
+     assert len(data)==4*48000
+     assert np.allclose(data[:48000],.1)
+-    assert np.allclose(data[48000:2*48000],0)
++    assert np.allclose(data[48000:2*48000],.1)
+     assert np.allclose(data[2*48000:3*48000],.3)
+-    assert np.allclose(data[3*48000:],0)
++    assert np.allclose(data[3*48000:],.1)

@@ -34,7 +34,7 @@ def quote_job(config: PricingConfig, duration_ms: int, media_type: MediaType) ->
         raise DomainError(
             f"media exceeds the 30-minute limit ({duration_ms} ms)", code=ErrorCode.MEDIA_TOO_LONG
         )
-    units = math.ceil(duration_ms * config.point_units_per_minute / 60_000)
+    units = -(-duration_ms * config.point_units_per_minute // 60_000)
     units = max(units, config.minimum_point_units)
     return JobQuote(duration_ms=duration_ms, point_units=units, pricing_version=config.pricing_version)
 

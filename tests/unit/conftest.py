@@ -8,7 +8,7 @@ from videotranslator.application.uow import CompleteInspectionCommand
 from videotranslator.bootstrap import build_container
 from videotranslator.config import CostPolicy, Settings
 from videotranslator.domain.enums import JobStatus
-from videotranslator.domain.models import CapacityCounter, User
+from videotranslator.domain.models import CapacityCounter, User, PricingConfig
 
 NOW = 1_800_000_000_000  # fixed epoch ms for deterministic tests
 
@@ -20,6 +20,8 @@ def container(tmp_path):
         store_path=":memory:",
         local_storage_dir=str(tmp_path / "objects"),
         cost=CostPolicy(daily_budget_minor=10_000, monthly_budget_minor=100_000),
+        # Existing ledger regressions use an explicit historical 100-unit rate.
+        pricing=PricingConfig(),
     )
     c = build_container(settings)
     c.seed()

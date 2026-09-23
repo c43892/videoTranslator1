@@ -183,6 +183,7 @@ class PaymentSnapshot:
     currency: str
     user_id: str | None = None
     provider_capture_id: str | None = None
+    payment_reference: str | None = None
 
 
 class PaymentGateway(Protocol):

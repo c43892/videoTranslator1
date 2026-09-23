@@ -14,6 +14,8 @@ from dataclasses import asdict
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.responses import JSONResponse
+import httpx
 from pydantic import BaseModel, Field
 
 from ..bootstrap import Container
@@ -23,6 +25,7 @@ from ..domain.enums import (
     EmailNotVerified,
     ErrorCode,
     Forbidden,
+    FailureClass,
     InsufficientCredits,
     InvalidTransition,
     NotFound,
@@ -32,6 +35,7 @@ from ..domain.models import Job, User, now_ms
 from ..ports import UserIdentity
 
 _ERROR_STATUS = {
+    ErrorCode.PROCESSING_UNAVAILABLE: 503,
     ErrorCode.NOT_FOUND: 404,
     ErrorCode.FORBIDDEN: 403,
     ErrorCode.EMAIL_NOT_VERIFIED: 403,
@@ -63,6 +67,7 @@ class CreateSessionRequest(BaseModel):
     provider: str
     success_url: str = ""
     cancel_url: str = ""
+    idempotency_key: str = Field(default="", max_length=100)
 
 
 class PatchJobRequest(BaseModel):
@@ -73,6 +78,11 @@ class PatchJobRequest(BaseModel):
 def create_app(container: Container) -> FastAPI:
     app = FastAPI(title="VideoTranslator 2.0 Control API", version="2.0.0")
 
+    @app.exception_handler(BackendError)
+    @app.exception_handler(httpx.RequestError)
+    async def backend_unavailable(request, exc):
+        return JSONResponse(status_code=503, content={"detail": {"code": "backend_failed"}})
+
     # -- auth ---------------------------------------------------------------
 
     def current_identity(authorization: Annotated[str | None, Header()] = None) -> UserIdentity:
@@ -80,7 +90,9 @@ def create_app(container: Container) -> FastAPI:
             raise HTTPException(401, detail={"code": "unauthenticated"})
         try:
             identity = container.identity.verify(authorization.removeprefix("Bearer ").strip())
-        except BackendError:
+        except BackendError as exc:
+            if exc.failure_class != FailureClass.PERMANENT:
+                raise HTTPException(503, detail={"code": "auth_unavailable"}, headers={"Retry-After": "1"}) from None
             raise HTTPException(401, detail={"code": "unauthenticated"}) from None
         _ensure_user(container, identity)
         return identity
@@ -106,6 +118,7 @@ def create_app(container: Container) -> FastAPI:
         return {"user_id": identity.uid, "email": identity.email,
                 "email_verified": identity.email_verified,
                 "point_balance_units": user.point_balance_units if user else 0,
+                "balance_cents": user.point_balance_units if user else 0, "currency": "USD",
                 "billing_status": user.billing_status if user else "clear"}
 
     @app.get("/api/v1/me/ledger")
@@ -148,6 +161,11 @@ def create_app(container: Container) -> FastAPI:
     @app.post("/api/v1/uploads/{upload_id}/complete", status_code=201)
     def complete_upload(upload_id: str, identity: UserIdentity = Depends(verified_identity)):
         try:
+            from ..domain.conversation import Conversation
+            with container.store.transaction() as tx:
+                drafts = tx.query(Conversation, where=("upload_id", "==", upload_id))
+            if drafts:
+                raise InvalidTransition("use_conversation_confirmation")
             return job_view(container.jobs.complete_upload(upload_id, identity.uid))
         except DomainError as exc:
             raise _http_error(exc) from exc
@@ -200,7 +218,21 @@ def create_app(container: Container) -> FastAPI:
     @app.get("/api/v1/jobs/{job_id}/result")
     def job_result(job_id: str, identity: UserIdentity = Depends(current_identity)):
         try:
-            return {"download_url": container.jobs.download_url(job_id, identity.uid)}
+            url = container.jobs.download_url(job_id, identity.uid)
+            if url.startswith('local://download/'):
+                from urllib.parse import urlsplit
+                url = f'/api/v1/jobs/{job_id}/playback?' + urlsplit(url).query
+            result = {"download_url": url}
+            job = container.jobs.get_job(job_id, identity.uid)
+            subtitle_key = job.output_object_key + '.vtt'
+            if job.media_type == 'video' and container.storage.exists(subtitle_key):
+                subtitle_url = container.storage.create_download_url(subtitle_key, container.settings.sas_ttl_seconds)
+                if subtitle_url.startswith('local://download/'):
+                    from urllib.parse import urlsplit
+                    subtitle_url = f'/api/v1/jobs/{job_id}/playback?asset=subtitles&' + urlsplit(subtitle_url).query
+                result['subtitle_url'] = subtitle_url
+                result['subtitle_language'] = job.target_language
+            return result
         except DomainError as exc:
             raise _http_error(exc) from exc
 
@@ -224,8 +256,9 @@ def create_app(container: Container) -> FastAPI:
                 identity.uid,
                 package_id=body.package_id,
                 provider=body.provider,
-                success_url=body.success_url,
-                cancel_url=body.cancel_url,
+                success_url=container.settings.public_app_url + "/?checkout=return",
+                cancel_url=container.settings.public_app_url + "/?checkout=cancel",
+                idempotency_key=body.idempotency_key,
             ))
         except DomainError as exc:
             raise _http_error(exc) from exc
@@ -246,6 +279,16 @@ def create_app(container: Container) -> FastAPI:
         except DomainError as exc:
             raise _http_error(exc) from exc
 
+    @app.post('/api/v1/billing/payments/{payment_id}/reconcile')
+    def reconcile_payment(payment_id: str, identity: UserIdentity = Depends(current_identity)):
+        try:
+            key = container.billing.reconcile_payment(payment_id, identity.uid)
+            if key:
+                container.billing_uow.apply_verified_payment(key)
+            return asdict(container.billing.get_payment(payment_id, identity.uid))
+        except DomainError as exc:
+            raise _http_error(exc) from exc
+
     @app.post("/api/v1/webhooks/stripe")
     async def stripe_webhook(request: Request):
         return await _webhook(request, "stripe")
@@ -258,7 +301,7 @@ def create_app(container: Container) -> FastAPI:
         body = await request.body()
         try:
             key = container.billing.record_webhook(provider, dict(request.headers), body)
-        except BackendError as exc:
+        except (BackendError, DomainError, ValueError, KeyError) as exc:
             raise HTTPException(400, detail={"code": "invalid_webhook", "message": str(exc)}) from exc
         return {"received": True, "inbox_key": key}  # 2xx fast; inbox processor posts later
 
@@ -281,19 +324,25 @@ def create_app(container: Container) -> FastAPI:
         if container.settings.profile.startswith("azure"):
             return  # Container Apps Jobs run the processors in cloud profiles
         container.seed()
+        container.jobs.recover_simulated_results()
+
+        def tick():
+            container.dispatcher.dispatch_due_jobs()
+            container.dispatcher.dispatch_due_inspections()
+            container.inbox.process_due()
+            container.reconciler.reconcile_once()
 
         async def loop():
             while True:
                 with contextlib.suppress(Exception):
-                    container.dispatcher.dispatch_due_jobs()
-                    container.dispatcher.dispatch_due_inspections()
-                    container.inbox.process_due()
-                    container.reconciler.reconcile_once()
+                    await asyncio.to_thread(tick)
                 await asyncio.sleep(1)
 
         task = asyncio.create_task(loop())
         app.state.processor_task = task
 
+    from .conversations import install_conversation_routes
+    install_conversation_routes(app, container, verified_identity, _http_error)
     return app
 
 

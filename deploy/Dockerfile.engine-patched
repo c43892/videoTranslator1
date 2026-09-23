@@ -1,0 +1,54 @@
+# The existing engine image includes its own isolated Python package/models API.
+FROM videotranslator-app:local
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends patch \
+    && rm -rf /var/lib/apt/lists/*
+COPY deploy/engine-patches/whisper-empty-words.patch /tmp/whisper.patch
+RUN cd /app && patch -p1 < /tmp/whisper.patch \
+    && python -c "import shutil,videotranslator.transcription as m; shutil.copyfile('/app/backend/videotranslator/transcription.py', m.__file__)"
+COPY deploy/engine-patches/test_whisper_empty_words.py /tmp/test_whisper_empty_words.py
+RUN pytest -q /tmp/test_whisper_empty_words.py
+COPY deploy/engine-patches/dialogue-residue.patch /tmp/dialogue.patch
+RUN cd /app && patch -p1 < /tmp/dialogue.patch \
+    && python -c "import shutil,videotranslator.media as m,videotranslator.pipeline as p; shutil.copyfile('/app/backend/videotranslator/media.py', m.__file__); shutil.copyfile('/app/backend/videotranslator/pipeline.py', p.__file__)"
+COPY deploy/engine-patches/test_dialogue_residue.py /tmp/test_dialogue_residue.py
+RUN pytest -q /tmp/test_dialogue_residue.py /app/tests/test_media.py
+COPY deploy/engine-patches/studio-entry.patch /tmp/studio-entry.patch
+RUN cd /app && patch -p1 < /tmp/studio-entry.patch \
+    && python -c "import shutil,importlib.util; shutil.copyfile('/app/backend/videotranslator/api.py', importlib.util.find_spec('videotranslator.api').origin)"
+COPY deploy/engine-patches/test_studio_entry.py /tmp/test_studio_entry.py
+RUN pytest -q /tmp/test_studio_entry.py
+COPY deploy/engine-patches/force-duration-fit.patch /tmp/force-duration-fit.patch
+RUN cd /app && patch -p1 < /tmp/force-duration-fit.patch \
+    && python -c "import shutil,videotranslator.media as m; shutil.copyfile('/app/backend/videotranslator/media.py', m.__file__)"
+COPY deploy/engine-patches/test_force_duration_fit.py /tmp/test_force_duration_fit.py
+RUN pytest -q /tmp/test_force_duration_fit.py /app/tests/test_media.py /tmp/test_dialogue_residue.py
+COPY deploy/engine-patches/soft-subtitles.patch /tmp/soft-subtitles.patch
+RUN cd /app && patch -p1 < /tmp/soft-subtitles.patch \
+    && python -c "import shutil,videotranslator.media as m,videotranslator.pipeline as p; shutil.copyfile('/app/backend/videotranslator/media.py', m.__file__); shutil.copyfile('/app/backend/videotranslator/pipeline.py', p.__file__)"
+COPY deploy/engine-patches/test_soft_subtitles.py /tmp/test_soft_subtitles.py
+RUN pytest -q /tmp/test_soft_subtitles.py /app/tests/test_media.py /tmp/test_force_duration_fit.py
+COPY deploy/engine-patches/segmentation-recovery.patch /tmp/segmentation-recovery.patch
+RUN cd /app && python -c "from pathlib import Path; paths=['backend/videotranslator/'+n+'.py' for n in ['media','pipeline','punctuation','segmentation']]+['tests/test_segmentation.py','tests/test_pipeline.py']; [Path(p).write_text(Path(p).read_text(), newline='\n') for p in paths]" \
+    && patch -p1 < /tmp/segmentation-recovery.patch \
+    && python -c "import shutil,importlib; [shutil.copyfile('/app/backend/videotranslator/'+name+'.py', importlib.import_module('videotranslator.'+name).__file__) for name in ['media','pipeline','punctuation','segmentation']]"
+COPY deploy/engine-patches/test_segmentation_recovery.py /tmp/test_segmentation_recovery.py
+RUN pytest -q /tmp/test_segmentation_recovery.py /app/tests/test_segmentation.py /app/tests/test_punctuation.py /app/tests/test_pipeline.py /tmp/test_soft_subtitles.py /tmp/test_force_duration_fit.py /app/tests/test_media.py
+COPY deploy/engine-patches/synthesis-limits.patch /tmp/synthesis-limits.patch
+RUN cd /app && python -c "from pathlib import Path; paths=['backend/videotranslator/'+n+'.py' for n in ['config','pipeline','punctuation','segmentation','transcription','tasks','providers','media']]+['tests/test_segmentation.py','tests/test_pipeline.py']; [Path(p).write_text(Path(p).read_text(), newline='\n') for p in paths]" \
+    && patch -p1 < /tmp/synthesis-limits.patch \
+    && python -c "import shutil,importlib; root=__import__('videotranslator').__path__[0]; [shutil.copyfile('/app/backend/videotranslator/'+name+'.py', root+'/'+name+'.py') for name in ['config','pipeline','punctuation','segmentation','references','transcription','tasks','providers','media']]"
+COPY deploy/engine-patches/test_synthesis_limits.py /tmp/test_synthesis_limits.py
+RUN pytest -q /tmp/test_synthesis_limits.py /app/tests/test_segmentation.py /app/tests/test_punctuation.py /app/tests/test_pipeline.py /tmp/test_soft_subtitles.py /tmp/test_force_duration_fit.py /app/tests/test_media.py /tmp/test_whisper_empty_words.py
+COPY deploy/engine-patches/scribe-events.patch /tmp/scribe-events.patch
+RUN cd /app && python -c "from pathlib import Path; [Path('backend/videotranslator/'+n+'.py').write_text(Path('backend/videotranslator/'+n+'.py').read_text(), newline='\n') for n in ['config','pipeline','segmentation','media','tasks','api']]; p=Path('tests/test_media.py'); p.write_text(p.read_text(), newline='\n')" \
+    && patch -p1 < /tmp/scribe-events.patch \
+    && python -c "import shutil; root=__import__('videotranslator').__path__[0]; [shutil.copyfile('/app/backend/videotranslator/'+n+'.py',root+'/'+n+'.py') for n in ['config','pipeline','segmentation','media','tasks','scribe','api']]"
+COPY deploy/engine-patches/test_scribe.py /tmp/test_scribe.py
+RUN pytest -q /tmp/test_scribe.py /tmp/test_synthesis_limits.py /app/tests/test_segmentation.py /app/tests/test_punctuation.py /app/tests/test_pipeline.py /tmp/test_soft_subtitles.py /tmp/test_force_duration_fit.py /app/tests/test_media.py /tmp/test_whisper_empty_words.py
+
+COPY deploy/engine-patches/turn-boundaries.patch /tmp/turn-boundaries.patch
+RUN cd /app && patch -p1 < /tmp/turn-boundaries.patch \
+    && python -c "import shutil; root=__import__('videotranslator').__path__[0]; [shutil.copyfile('/app/backend/videotranslator/'+n+'.py',root+'/'+n+'.py') for n in ['segmentation','pipeline','scribe']]"
+COPY deploy/engine-patches/test_scribe_turns.py /tmp/test_scribe_turns.py
+RUN pytest -q /tmp/test_scribe_turns.py /tmp/test_synthesis_limits.py /app/tests/test_segmentation.py /app/tests/test_punctuation.py /app/tests/test_pipeline.py /tmp/test_soft_subtitles.py /tmp/test_force_duration_fit.py /app/tests/test_media.py /tmp/test_whisper_empty_words.py

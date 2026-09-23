@@ -1,0 +1,205 @@
+--- a/backend/videotranslator/segmentation.py
++++ b/backend/videotranslator/segmentation.py
+@@ -1,12 +1,15 @@
+ """Split at source-language punctuation, then merge short neighboring clauses."""
+ import re
+ import math
++from dataclasses import replace
+ from .domain import Word, Segment
+ 
+ # Ignore decimal points and common English titles; include Japanese punctuation.
+ BOUNDARY = re.compile(r'[,;:!?，；：、。！？…][”’"\'」』）)]?$|(?<!\bDr)(?<!\bMr)(?<!\bMs)(?<!\bMrs)[.][”’"\'」』）)]?$')
+ CJK = re.compile(r'[\u3000-\u30ff\u3400-\u9fff\uff66-\uff9f]')
+-SEGMENTATION_VERSION = 'punctuation-min3-v4-audio-events'
++SEGMENTATION_VERSION = 'punctuation-v5-sentence-boundaries'
++SENTENCE_END = re.compile(r'[.!?。！？…][”’"\'」』）)]?$')
++MARKS = set('.,!?;:，。！？；：、…“”‘’「」『』（）()"')
+ 
+ 
+ def join_words(words: list[Word]) -> str:
+@@ -41,10 +44,24 @@
+     return max(w.end for w in group)-group[0].start
+ 
+ 
+-def segment_dialogue(words: list[Word], max_reference_seconds: float = 15, audio_events=None) -> list[Segment]:
++def segment_dialogue(words: list[Word], max_reference_seconds: float = 15, audio_events=None, turn_boundaries=None) -> list[Segment]:
++    # Scribe can return punctuation as separate timed tokens. It belongs to
++    # the preceding text, never to a new audio window or the following voice.
++    cleaned = []
++    for word in words:
++        token = word.text.strip()
++        if not token:
++            continue
++        if all(c in MARKS for c in token):
++            if cleaned:
++                cleaned[-1] = replace(cleaned[-1], text=cleaned[-1].text + token)
++            continue
++        cleaned.append(word)
++    words = cleaned
+     events = audio_events or []
+     def event_between(left, right):
+-        return any(e['start'] < right[0].start and e['end'] > left[-1].end for e in events)
++        return (any(e['start'] < right[0].start and e['end'] > left[-1].end for e in events)
++                or any(left[0].start < t <= right[0].start for t in (turn_boundaries or [])))
+     clauses, current = [], []
+     for word in words:
+         if current and event_between(current, [word]):
+@@ -71,6 +88,12 @@
+             left, right = sorted((i,j))
+             if event_between(groups[left], groups[right]):
+                 continue
++            # A complete short answer must not absorb the next person's turn.
++            # We have no evidence of voice continuity across a sentence or pause.
++            if SENTENCE_END.search(groups[left][-1].text.strip()):
++                continue
++            if groups[right][0].start - max(w.end for w in groups[left]) > .3:
++                continue
+             combined = groups[left] + groups[right]
+             groups[left:right+1] = [combined]
+             i = left
+--- a/backend/videotranslator/pipeline.py
++++ b/backend/videotranslator/pipeline.py
+@@ -84,10 +84,13 @@
+ 
+         stage('transcribe', 25)
+         transcript_key = f'{prefix}/transcript.json'
+-        if not storage.exists(transcript_key):
++        cached_transcript = storage.read_json(transcript_key) if storage.exists(transcript_key) else None
++        if (cached_transcript is None or (config.transcription_provider == 'scribe'
++                and cached_transcript.get('turn_detection') != 'boundary_only')):
+             storage.write_json(transcript_key, self.transcriber.transcribe(stems.dialogue))
+         transcript = storage.read_json(transcript_key)
+         manifest['source_language'] = transcript.get('language_code', '')
++        manifest['providers']['turn_detection'] = transcript.get('turn_detection', 'unavailable')
+         manifest['transcript'] = transcript_key
+ 
+         stage('segment', 35)
+@@ -98,7 +101,7 @@
+         punctuation_warnings = []
+         if transcript.get('text', '').strip() and not words:
+             raise NeedsReview('Transcription contains text but no usable timed words')
+-        if self.punctuator and words:
++        if self.punctuator and words and transcript.get('provider') != 'elevenlabs':
+             punctuation_key = f'{prefix}/punctuation.json'
+             if not storage.exists(punctuation_key):
+                 text = self.punctuator.restore(words)
+@@ -112,7 +115,9 @@
+         manifest['segmentation_version'] = SEGMENTATION_VERSION
+         events = transcript.get('audio_events', [])
+         manifest['audio_events'] = events
+-        segments = segment_dialogue(words, config.emotion_reference_max_seconds, audio_events=events)
++        manifest['turn_boundaries'] = transcript.get('turn_boundaries', [])
++        segments = segment_dialogue(words, config.emotion_reference_max_seconds, audio_events=events,
++                                    turn_boundaries=manifest['turn_boundaries'])
+         manifest['warnings'] = list(punctuation_warnings)
+         if not segments:
+             manifest['warnings'].append('未识别到可替换的对白，保留原音轨。')
+--- a/backend/videotranslator/scribe.py
++++ b/backend/videotranslator/scribe.py
+@@ -12,7 +12,8 @@
+ def normalize_scribe(data, duration):
+     if not isinstance(data, dict) or not isinstance(data.get('words'), list):
+         raise ProviderError('Scribe response has no timed words/events')
+-    words, events = [], []
++    words, events, turns = [], [], []
++    previous_voice = None
+     for item in data['words']:
+         if not isinstance(item, dict):
+             raise ProviderError('Scribe returned an invalid transcript entry')
+@@ -31,9 +32,17 @@
+         if kind == 'audio_event':
+             events.append(entry)
+         else:
++            # Anonymous provider labels only detect a change in adjacent voices.
++            # Do not expose identities, choose shared references or veto speech.
++            voice = item.get('speaker_id')
++            lexical = any(c.isalnum() for c in text)
++            if lexical and voice is not None:
++                if previous_voice is not None and voice != previous_voice:
++                    turns.append(start)
++                previous_voice = voice
+             words.append(dict(entry, speaker_id=''))
+-    result = {'words':words, 'audio_events':events, 'language_code':data.get('language_code',''),
+-              'provider':'elevenlabs', 'speaker_identification':False}
++    result = {'words':words, 'audio_events':events, 'turn_boundaries':turns, 'language_code':data.get('language_code',''),
++              'provider':'elevenlabs', 'speaker_identification':False, 'turn_detection':'boundary_only'}
+     # The provider's full transcript can include '(laughter)'. Only actual words
+     # belong in translation or punctuation requests. Raw JSON remains cached.
+     result['text'] = join_words(parse_words(result))
+@@ -49,7 +58,7 @@
+         if not self.config.elevenlabs_api_key.strip():
+             raise ProviderError('Missing configuration: ELEVENLABS_API_KEY')
+         signature=hashlib.sha256(json.dumps({'model':self.config.scribe_model,
+-            'base_url':self.config.elevenlabs_base_url, 'events':True, 'diarize':False}).encode()).hexdigest()[:16]
++            'base_url':self.config.elevenlabs_base_url, 'events':True, 'diarize':True}).encode()).hexdigest()[:16]
+         prefix=str(PurePosixPath(audio).parent/'recognition')
+         key=f'{prefix}/scribe-{signature}.json'
+         duration=float(media.probe(self.storage.path(audio))['format']['duration'])
+@@ -67,7 +76,7 @@
+                 response=client.post(self.config.elevenlabs_base_url.rstrip('/')+'/speech-to-text',
+                     headers={'xi-api-key':self.config.elevenlabs_api_key},
+                     data={'model_id':self.config.scribe_model, 'timestamps_granularity':'word',
+-                          'tag_audio_events':'true', 'diarize':'false', 'no_verbatim':'false'},
++                          'tag_audio_events':'true', 'diarize':'true', 'no_verbatim':'false'},
+                     files={'file':('dialogue.flac',f,'audio/flac')})
+             # Do not log provider response bodies or authentication headers.
+             if response.status_code in (401,403):
+--- a/tests/test_segmentation.py
++++ b/tests/test_segmentation.py
+@@ -36,7 +36,7 @@
+ def test_chinese_spacing_and_stable_ids():
+     words = [w('你',0,.3),w('好。',.3,.8),w('世界！',1,2)]
+     a, b = segment_dialogue(words), segment_dialogue(words)
+-    assert a[0].source_text == '你好。世界！'
++    assert [x.source_text for x in a] == ['你好。','世界！']
+     assert 'short_utterance_no_compatible_neighbor' in a[0].notes
+     assert [s.id for s in a] == [s.id for s in b]
+ 
+@@ -54,29 +54,28 @@
+ 
+ def test_short_clauses_merge_forward_and_short_tail_backward():
+     result=segment_dialogue([w('One,',0,1),w('two.',1.1,2),w('three!',2.1,3.5),w('Tail.',3.6,4.2)])
+-    assert len(result)==1
+-    assert result[0].source_text=='One, two. three! Tail.'
+-    assert (result[0].start,result[0].end)==(0,4.2)
++    assert [s.source_text for s in result]==['One, two.','three!','Tail.']
++    assert [(s.start,s.end) for s in result]==[(0,2),(2.1,3.5),(3.6,4.2)]
+ 
+ 
+-def test_three_seconds_needs_more_audio_and_long_silence_is_not_a_boundary():
++def test_complete_three_second_sentence_keeps_its_boundary():
+     result=segment_dialogue([w('One.',0,3),w('Two.',4,5)])
+-    assert len(result)==1 and result[0].end==5
++    assert len(result)==2 and result[0].end==3
+ 
+ 
+ def test_short_clauses_merge_without_identity_inference():
+     result=segment_dialogue([w('Hi.',0,1,'A'),w('Hello.',1.1,2,'B')])
+-    assert len(result)==1 and result[0].speaker_id==''
++    assert len(result)==2 and all(s.speaker_id=='' for s in result)
+     assert not result[0].flags
+ 
+ 
+ def test_unknown_inside_japanese_word_does_not_split_or_insert_spaces():
+     result=segment_dialogue([w('大',0,.4,'unknown'),w('丈',.4,.4,'A'),w('夫ですか？',.4,1,'A'),
+                             w('み',1.1,1.2,'A'),w('んな',1.2,1.4,'A'),w('乗りましたね？',1.4,3.6,'A')])
+-    assert len(result)==1 and result[0].source_text=='大丈夫ですか？みんな乗りましたね？'
++    assert [s.source_text for s in result]==['大丈夫ですか？','みんな乗りましたね？']
+     assert result[0].speaker_id=='' and not result[0].flags
+ 
+ 
+ def test_reference_length_does_not_limit_short_clause_merge():
+-    result=segment_dialogue([w('Long.',0,14),w('Tail.',14,16)])
++    result=segment_dialogue([w('Long,',0,14),w('tail.',14,16)])
+     assert len(result)==1 and result[0].end==16 and not result[0].flags
+--- a/tests/test_punctuation.py
++++ b/tests/test_punctuation.py
+@@ -13,7 +13,7 @@
+     assert [(w.start,w.end,w.speaker_id) for w in restored]==[(w.start,w.end,w.speaker_id) for w in words]
+     assert words[-1].text=='行きましょう'
+     assert join_words(restored)=='大丈夫ですか？行きましょう。'
+-    assert len(segment_dialogue(restored))==1
++    assert len(segment_dialogue(restored))==2
+ 
+ 
+ @pytest.mark.parametrize('text',['你没事吧？','大夫ですか？行きましょう。','行きましょう。大丈夫ですか？'])

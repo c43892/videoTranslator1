@@ -1,0 +1,8 @@
+FROM videotranslator-indextts2:local
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends patch \
+    && rm -rf /var/lib/apt/lists/*
+COPY deploy/engine-patches/tts-request-limits.patch /tmp/tts-request-limits.patch
+RUN cd /opt/tts && python -c "from pathlib import Path; p=Path('server.py'); p.write_text(p.read_text(), newline='\n')" \
+    && patch -p1 < /tmp/tts-request-limits.patch \
+    && python -m py_compile /opt/tts/server.py

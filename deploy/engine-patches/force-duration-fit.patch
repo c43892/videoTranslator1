@@ -1,0 +1,46 @@
+--- a/backend/videotranslator/media.py
++++ b/backend/videotranslator/media.py
+@@ -1,4 +1,5 @@
+ import json
++import math
+ import subprocess
+ from pathlib import Path
+ import numpy as np
+@@ -47,13 +48,17 @@
+ 
+ def align(source, output, window, max_speedup):
+     output.parent.mkdir(parents=True, exist_ok=True)
++    # max_speedup remains a compatibility argument, not a rejection threshold.
+     duration = sf.info(source).duration
++    if not math.isfinite(window) or window <= 0 or not math.isfinite(duration) or duration <= 0:
++        raise ValueError('Audio duration and alignment window must be positive and finite')
+     ratio = duration / window
+-    if ratio > max_speedup + 0.005:
+-        raise NeedsReview(f'duration_overflow: {duration:.2f}s of speech for a {window:.2f}s window')
+     filters = []
+     if ratio > 1:
+-        filters.append(f'atempo={ratio:.8f}')
++        # Each stage stays <= 2: larger single atempo factors may skip samples.
++        stages = max(1, math.ceil(math.log2(ratio)))
++        factor = ratio ** (1 / stages)
++        filters.extend([f'atempo={factor:.12f}'] * stages)
+     filters.extend([f'apad=whole_dur={window:.8f}', f'atrim=duration={window:.8f}'])
+     ffmpeg(input_args(source) + ['-af', ','.join(filters), '-ar', RATE, '-ac', 2, '-c:a', 'pcm_s16le', output])
+ 
+--- a/tests/test_media.py
++++ b/tests/test_media.py
+@@ -14,11 +14,11 @@
+     assert rate == 48000 and len(data) == 48000
+     assert np.max(np.abs(data[25000:])) < .001
+ 
+-def test_excessive_duration_requires_review(tmp_path):
++def test_excessive_duration_is_compressed(tmp_path):
+     source = tmp_path/'source.wav'
+     sf.write(source, np.ones(96000)*.1, 48000)
+-    with pytest.raises(NeedsReview, match='duration_overflow'):
+-        media.align(source, tmp_path/'out.wav', 1, 1.25)
++    media.align(source, tmp_path/'out.wav', 1, 1.25)
++    assert sf.info(tmp_path/'out.wav').duration == pytest.approx(1, abs=1/48000)
+ 
+ def test_timeline_preserves_gaps_and_overlapping_speakers(tmp_path):
+     storage = LocalStorage(str(tmp_path))

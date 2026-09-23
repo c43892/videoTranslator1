@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from ..config import CostPolicy
 from ..docstore import Store
-from ..domain.enums import ErrorCode, JobStatus, check_transition
+from ..domain.enums import ErrorCode, JobStatus, RefundStatus, check_transition
 from ..domain.models import CapacityCounter, Job, now_ms
 from ..ports import JobBackend, MediaInspectionBackend, ObjectStorage
 from .uow import CompleteInspectionCommand, JobFundingUnitOfWork
@@ -19,6 +19,7 @@ WATCHED_STATUSES = (
     JobStatus.PROVISIONING,
     JobStatus.RUNNING,
     JobStatus.CANCELLING,
+    JobStatus.FAILED,
 )
 
 
@@ -48,6 +49,13 @@ class JobReconciler:
             jobs = tx.query(Job, where_in=("status", list(WATCHED_STATUSES)))
         synced = 0
         for job in jobs:
+            if job.status == JobStatus.FAILED:
+                # Recover old failed debits too; the transaction and ledger key
+                # make concurrent/repeated reconciliation safe.
+                if job.charged_ledger_entry_id and job.refund_status != RefundStatus.COMPLETED:
+                    self._funding.fail_and_refund(job.job_id, error_code=ErrorCode.BACKEND_FAILED, now=now)
+                    synced += 1
+                continue
             if job.status == JobStatus.INSPECTING and job.inspection_backend_job_id:
                 synced += self._sync_inspection(job, now)
             elif job.backend_job_id and job.status != JobStatus.INSPECTING:
@@ -91,7 +99,10 @@ class JobReconciler:
 
     def _sync_execution(self, job: Job, now: int) -> int:
         status = self._job_backend.get_status(job.backend_job_id)
-        if status.state in ("queued", "not_found"):
+        if status.state == "queued":
+            self._mark_progress(job, status, now)
+            return 1
+        if status.state == "not_found":
             return 0
         if status.state in ("provisioning", "running"):
             self._mark_progress(job, status, now)
@@ -110,6 +121,10 @@ class JobReconciler:
                     now=now,
                 )
                 return 1
+            # A short or recovered task can complete between two polls.
+            if job.status == JobStatus.PROVISIONING:
+                from dataclasses import replace
+                self._mark_progress(job, replace(status, state="running"), now)
             self._mark_succeeded(job, output_key, status, now)
             return 1
         if status.state == "failed":
@@ -183,6 +198,8 @@ class JobReconciler:
             check_transition(current.status, JobStatus.SUCCEEDED)
             current.status = JobStatus.SUCCEEDED
             current.output_object_key = output_key
+            current.warnings = status.warnings
+            current.stage = "complete"
             current.progress_percent = 100
             current.completed_at = now
             current.output_expires_at = now + output_retention_ms

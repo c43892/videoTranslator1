@@ -1,0 +1,57 @@
+--- a/server.py
++++ b/server.py
+@@ -89,7 +89,8 @@
+     if STATE['status'] != 'ready':
+         from fastapi.responses import JSONResponse
+         return JSONResponse(STATE, status_code=503)
+-    return {**STATE, 'max_text_tokens': MAX_TOKENS, 'max_reference_seconds': 15, 'languages': ['en', 'zh']}
++    return {**STATE, 'max_text_tokens_per_segment': MAX_TOKENS, 'max_text_characters': 5000,
++            'max_reference_seconds': 15, 'languages': ['en', 'zh']}
+ 
+ 
+ class Texts(BaseModel):
+@@ -100,7 +101,8 @@
+ def tokenize(body: Texts):
+     with LOCK:
+         ensure_model()
+-        return {'counts': [len(MODEL.tokenizer.tokenize(t)) for t in body.texts], 'limit': MAX_TOKENS}
++        return {'counts': [len(MODEL.tokenizer.tokenize(t)) for t in body.texts],
++                'chunk_limit': MAX_TOKENS}
+ 
+ 
+ class Speech(BaseModel):
+@@ -122,13 +124,11 @@
+             raise HTTPException(422, f'{kind} reference is missing')
+         signal, sr = sf.read(path)
+         duration = len(signal) / sr
+-        if duration <= 0.15 or duration > 15.01 or not np.isfinite(signal).all() or np.sqrt(np.mean(signal**2)) < 0.0001:
++        if duration <= 0 or not np.isfinite(signal).all():
+             raise HTTPException(422, f'Unsuitable {kind} reference: duration or audio quality')
+     with LOCK:
+         ensure_model()
+         count = len(MODEL.tokenizer.tokenize(body.text))
+-        if count > MAX_TOKENS:
+-            raise HTTPException(422, f'Synthesis text has {count} tokens; limit is {MAX_TOKENS}')
+         output.parent.mkdir(parents=True, exist_ok=True)
+         temporary = output.with_suffix('.partial.wav')
+         started = time.monotonic()
+@@ -138,9 +138,16 @@
+             with warnings.catch_warnings():
+                 # Upstream otherwise saves incomplete speech when its generation cap is hit.
+                 warnings.filterwarnings('error', message='WARN: generation stopped.*', category=RuntimeWarning)
+-                MODEL.infer(spk_audio_prompt=str(speaker), emo_audio_prompt=str(emotion), text=body.text,
+-                            output_path=str(temporary), emo_alpha=1.0, use_random=False,
+-                            max_text_tokens_per_segment=MAX_TOKENS, num_beams=1, verbose=False)
++                for chunk_tokens in dict.fromkeys([MAX_TOKENS, max(20, MAX_TOKENS//2)]):
++                    try:
++                        MODEL.infer(spk_audio_prompt=str(speaker), emo_audio_prompt=str(emotion), text=body.text,
++                                    output_path=str(temporary), emo_alpha=1.0, use_random=False,
++                                    max_text_tokens_per_segment=chunk_tokens, num_beams=1, verbose=False)
++                        break
++                    except RuntimeWarning:
++                        temporary.unlink(missing_ok=True)
++                        if chunk_tokens == max(20, MAX_TOKENS//2):
++                            raise
+             signal, sr = sf.read(temporary)
+             if not len(signal) or not np.isfinite(signal).all() or np.sqrt(np.mean(signal**2)) < 0.0001:
+                 raise RuntimeError('Synthesized audio is empty or invalid')

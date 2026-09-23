@@ -1,0 +1,18 @@
+--- a/backend/videotranslator/api.py
++++ b/backend/videotranslator/api.py
+@@ -376,5 +376,15 @@
+         raise HTTPException(404)
+     return FileResponse(storage.path(segment[kind]), media_type='audio/wav')
+ 
++# Keep the old bookmarked entry point on the current Firebase-backed Studio.
++# API routes and internal worker communication remain on this engine origin.
++if os.environ.get('STUDIO_PUBLIC_URL'):
++    @app.get('/', include_in_schema=False)
++    @app.get('/index.html', include_in_schema=False)
++    def studio_entry():
++        from fastapi.responses import RedirectResponse
++        return RedirectResponse(os.environ['STUDIO_PUBLIC_URL'], status_code=307,
++                                headers={'Cache-Control': 'no-store'})
++
+ if Path('/app/static').exists():
+     app.mount('/', StaticFiles(directory='/app/static', html=True), name='web')

@@ -15,9 +15,10 @@ class LocalObjectStorage(FakeObjectStorage):
     validates them, mirroring the short-lived SAS contract (§3.4).
     """
 
-    def __init__(self, root: str | Path, *, secret: str = "local-dev-secret"):
+    def __init__(self, root: str | Path, *, secret: str | None = None):
         super().__init__(root)
-        self._secret = secret.encode()
+        import secrets
+        self._secret = (secret or secrets.token_urlsafe(32)).encode()
 
     def _token(self, key: str, expires: int) -> str:
         import hashlib

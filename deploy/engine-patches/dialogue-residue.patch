@@ -1,0 +1,84 @@
+--- a/backend/videotranslator/media.py
++++ b/backend/videotranslator/media.py
+@@ -71,29 +71,27 @@
+             with sf.SoundFile(original) as source:
+                 if source.samplerate != RATE or source.channels != 2:
+                     raise ValueError('Original dialogue must be canonical stereo audio')
+-                out.seek(0)
+-                remaining = frames
+-                while remaining:
+-                    data = source.read(min(RATE, remaining), dtype='float32', always_2d=True)
+-                    if not len(data):
+-                        break
+-                    out.write(data)
+-                    remaining -= len(data)
+-            # Clear all replacement windows first, then accumulate translated
+-            # voices. Fallback windows and uncovered source audio stay intact.
+-            for segment in segments:
+-                if segment.render_status == 'original':
+-                    continue
+-                offset = round(segment.start * RATE)
+-                end = round(segment.end * RATE)
+-                if offset < 0 or end > frames + 2 or end <= offset:
+-                    raise ValueError('Invalid replacement interval')
+-                out.seek(offset)
+-                remaining = min(end, frames)-offset
+-                while remaining:
+-                    size = min(remaining, len(zero))
+-                    out.write(zero[:size])
+-                    remaining -= size
++                # Start from silence. ASR timestamps do not cover every breath or
++                # word tail: retaining the whole stem leaks source speech in gaps.
++                # Only explicitly flagged fallback windows may contain original voice.
++                # Overlapping fallbacks overwrite the same samples, never sum them.
++                for segment in segments:
++                    if segment.render_status != 'original':
++                        continue
++                    offset, end = round(segment.start * RATE), round(segment.end * RATE)
++                    if offset < 0 or end > frames + 2 or end <= offset:
++                        raise ValueError('Invalid original fallback interval')
++                    source.seek(offset)
++                    out.seek(offset)
++                    remaining = min(end, frames) - offset
++                    while remaining:
++                        data = source.read(min(RATE, remaining), dtype='float32', always_2d=True)
++                        if not len(data):
++                            raise ValueError('Original dialogue is shorter than its fallback interval')
++                        out.write(data)
++                        remaining -= len(data)
++        elif any(segment.render_status == 'original' for segment in segments):
++            raise ValueError('Original dialogue is required for fallback segments')
+         for segment in segments:
+             if segment.render_status == 'original':
+                 continue
+--- a/backend/videotranslator/pipeline.py
++++ b/backend/videotranslator/pipeline.py
+@@ -6,7 +6,7 @@
+ from .segmentation import parse_words, segment_dialogue, SEGMENTATION_VERSION
+ from .punctuation import apply_punctuation
+ 
+-PIPELINE_VERSION = '2026-09-21.2'
++PIPELINE_VERSION = '2026-09-22.1'
+ 
+ def digest(value):
+     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:20]
+@@ -226,6 +226,7 @@
+                     preserve_original(segment)
+                     changed = True
+         manifest['completion_policy'] = 'preserve_original_on_segment_review'
++        manifest['dialogue_policy'] = 'translated_and_explicit_fallback_only'
+         manifest['warnings'].extend(
+             f'{s.id}（{s.start:.2f}–{s.end:.2f} 秒）未替换，已保留原对白：' + '; '.join(s.flags)
+             for s in segments if s.render_status == 'original')
+--- a/tests/test_media.py
++++ b/tests/test_media.py
+@@ -47,6 +47,7 @@
+     media.dialogue_timeline(segments,storage,tmp_path/'timeline.wav',4,original=tmp_path/'original.wav')
+     data,sr=sf.read(tmp_path/'timeline.wav')
+     assert len(data)==4*48000
+-    assert np.allclose(data[:2*48000],.1)
++    assert np.allclose(data[:48000],.1)
++    assert np.allclose(data[48000:2*48000],0)
+     assert np.allclose(data[2*48000:3*48000],.3)
+-    assert np.allclose(data[3*48000:],.1)
++    assert np.allclose(data[3*48000:],0)

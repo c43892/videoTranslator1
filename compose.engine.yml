@@ -1,0 +1,20 @@
+# Override for the existing local GPU engine. The socket is restricted to this
+# trusted local control service; never expose it to browsers or mount it in a
+# public/untrusted workload. Cloud backends should use their own JobBackend.
+services:
+  studio:
+    restart: unless-stopped
+    user: "0:0"
+    environment:
+      APP_PROFILE: local-full
+      ENGINE_BACKEND: docker
+      DOCKER_COMMAND: docker
+      ENGINE_CONTAINER: ${ENGINE_CONTAINER:-videotranslator-api-1}
+      STORE_PATH: /data/${STUDIO_STORE_FILE:-store-stripe-sandbox.db}
+      LOCAL_STORAGE_DIR: /data/objects
+      LOCAL_QUEUE_DB: /data/inspection-queue.db
+    volumes:
+      - type: bind
+        source: ${STUDIO_DATA_DIR:-./vt-data/chat-preview}
+        target: /data
+      - /var/run/docker.sock:/var/run/docker.sock

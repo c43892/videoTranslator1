@@ -3,3 +3,8 @@ __pycache__/
 *.egg-info/
 vt-data/
 .pytest_cache/
+.env
+.env.*
+!.env.example
+*_credential.txt
+secrets/

@@ -1,0 +1,37 @@
+# Local control/UI preview. The existing worker deployment remains separate.
+services:
+  studio:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.control
+    ports:
+      - "127.0.0.1:8090:8000"
+    environment:
+      APP_PROFILE: local-ui
+      LOCAL_STORAGE_SIGNING_SECRET: ${LOCAL_STORAGE_SIGNING_SECRET:-}
+      AUTH_MODE: ${AUTH_MODE:-firebase}
+      FIREBASE_API_KEY: ${FIREBASE_API_KEY:-}
+      FIREBASE_AUTH_DOMAIN: ${FIREBASE_AUTH_DOMAIN:-}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
+      FIREBASE_APP_ID: ${FIREBASE_APP_ID:-}
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/firebase-admin.json
+      PAYMENT_MODE: ${PAYMENT_MODE:-disabled}
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:8090}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      PAYPAL_CLIENT_ID: ${PAYPAL_CLIENT_ID:-}
+      PAYPAL_CLIENT_SECRET: ${PAYPAL_CLIENT_SECRET:-}
+      PAYPAL_WEBHOOK_ID: ${PAYPAL_WEBHOOK_ID:-}
+      PRICING_VERSION: ${PRICING_VERSION:-usd-cent-v1}
+      POINT_UNITS_PER_MINUTE: ${POINT_UNITS_PER_MINUTE:-10}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      CHAT_MODEL: ${CHAT_MODEL:-deepseek-chat}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+    volumes:
+      - chat-data:/data
+      - type: bind
+        source: ${FIREBASE_ADMIN_CREDENTIALS_DIR:-./secrets}
+        target: /run/secrets
+        read_only: true
+volumes:
+  chat-data:

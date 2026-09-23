@@ -82,21 +82,25 @@ class TestDurationFit:
         d = decide_fit(2_000, 3_000, 0, 0, self.POLICY)
         assert d.action == FitAction.PAD
 
-    def test_borrow_when_overflow_fits_gap(self):
+    def test_fit_stays_inside_original_window_even_with_gap(self):
         d = decide_fit(3_300, 3_000, 500, 0, self.POLICY)
-        assert d.action == FitAction.BORROW
-        assert d.atempo == 1.0
+        assert d.action == FitAction.SPEED_UP
+        assert d.atempo == pytest.approx(1.1)
+        assert d.available_duration_ms == 3000
+        assert d.borrowed_gap_ms == 0
 
     def test_speed_up_within_soft_limit(self):
         d = decide_fit(3_500, 3_000, 0, 0, self.POLICY)
         assert d.action == FitAction.SPEED_UP
         assert d.atempo == pytest.approx(3_500 / 3_000)
 
-    def test_compact_then_fail_over_hard_limit(self):
+    def test_exceeding_old_limits_still_compresses_without_retranslation(self):
         over_soft = decide_fit(4_000, 3_000, 0, 0, self.POLICY)
-        assert over_soft.action == FitAction.COMPACT
+        assert over_soft.action == FitAction.SPEED_UP
+        assert over_soft.atempo == pytest.approx(4/3)
         still_over = decide_fit(4_200, 3_000, 0, 2, self.POLICY)
-        assert still_over.action == FitAction.FAIL
+        assert still_over.action == FitAction.SPEED_UP
+        assert still_over.atempo == pytest.approx(1.4)
 
     def test_hard_limit_speed_up_after_compactions(self):
         d = decide_fit(3_900, 3_000, 0, 2, self.POLICY)  # ratio 1.30 ≤ 1.35

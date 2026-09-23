@@ -8,6 +8,9 @@ import sys
 
 def main() -> None:
     import uvicorn
+    from dotenv import load_dotenv
+
+    load_dotenv()  # Local .env; injected deployment environment takes precedence.
 
     from ..bootstrap import build_container
     from .app import create_app

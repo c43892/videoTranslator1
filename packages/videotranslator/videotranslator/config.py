@@ -33,7 +33,15 @@ class Settings:
     store_path: str = ":memory:"  # SQLite file for local profiles
     local_storage_dir: str = "./vt-data/objects"
     local_queue_db: str = "./vt-data/scheduler.db"
-    pricing: PricingConfig = field(default_factory=PricingConfig)
+    engine_backend: str = "disabled"
+    docker_command: str = "docker"
+    engine_container: str = "videotranslator-api-1"
+    pricing: PricingConfig = field(default_factory=lambda: PricingConfig(
+        pricing_version="usd-cent-v1", point_units_per_minute=10, minimum_point_units=1))
+    auth_mode: str = "firebase"
+    firebase_web_config: dict = field(default_factory=dict)
+    payment_mode: str = "disabled"
+    public_app_url: str = "http://localhost:8090"
     cost: CostPolicy = field(default_factory=CostPolicy)
     max_active_jobs_per_user: int = 1
     max_retry_attempts: int = 3
@@ -46,10 +54,21 @@ class Settings:
     dispatcher_lease_ms: int = 60_000
     topup_packages: tuple = (
         # package_id, currency, amount_minor, point_units, pricing_version
+        ("points_1_v1", "USD", 100, 100, "topup-v1"),
         ("points_10_v1", "USD", 1000, 1000, "topup-v1"),
         ("points_50_v1", "USD", 5000, 5000, "topup-v1"),
         ("points_100_v1", "USD", 10000, 10000, "topup-v1"),
     )
+
+    @property
+    def processing_available(self) -> bool:
+        # Both local profiles still use simulated heavy models. Only the test
+        # profile may exercise charging with those models.
+        if self.profile == "local-ui":
+            return False
+        if self.profile == "local-full":
+            return self.engine_backend == "docker"
+        return True
 
 
 def _bool(env: str, default: bool) -> bool:
@@ -75,8 +94,17 @@ def settings_from_env() -> Settings:
         sku_region_price_version=os.environ.get("GPU_PRICE_VERSION", "local-dev"),
     )
     return Settings(
-        profile=os.environ.get("APP_PROFILE", "test"),
-        store_path=os.environ.get("STORE_PATH", base.store_path),
+        engine_backend=os.environ.get("ENGINE_BACKEND", "disabled"),
+        docker_command=os.environ.get("DOCKER_COMMAND", "docker"),
+        engine_container=os.environ.get("ENGINE_CONTAINER", "videotranslator-api-1"),
+        auth_mode=os.environ.get("AUTH_MODE", "firebase"),
+        firebase_web_config={key: os.environ.get(env, "") for key, env in {
+            "apiKey": "FIREBASE_API_KEY", "authDomain": "FIREBASE_AUTH_DOMAIN",
+            "projectId": "FIREBASE_PROJECT_ID", "appId": "FIREBASE_APP_ID"}.items()},
+        payment_mode=os.environ.get("PAYMENT_MODE", "disabled"),
+        public_app_url=os.environ.get("PUBLIC_APP_URL", base.public_app_url).rstrip("/"),
+        profile=os.environ.get("APP_PROFILE", "local-ui"),
+        store_path=os.environ.get("STORE_PATH", "./vt-data/store.db"),
         local_storage_dir=os.environ.get("LOCAL_STORAGE_DIR", base.local_storage_dir),
         local_queue_db=os.environ.get("LOCAL_QUEUE_DB", base.local_queue_db),
         pricing=pricing,

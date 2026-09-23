@@ -75,7 +75,10 @@ class OutboxDispatcher:
         with self._store.transaction() as tx:
             due = [
                 o
-                for o in tx.query(JobOutbox, where=("status", "==", OutboxStatus.PENDING))
+                for o in tx.query(
+                    JobOutbox,
+                    where_in=("status", [OutboxStatus.PENDING, OutboxStatus.PROCESSING]),
+                )
                 if o.next_attempt_at <= now and (o.lease_expires_at or 0) <= now
             ][:limit]
             for outbox in due:
@@ -87,11 +90,19 @@ class OutboxDispatcher:
                     outbox.completed_at = now
                     tx.put(outbox, outbox.outbox_id)
                     continue
-                if job.status != JobStatus.QUEUED:
+                first_claim = outbox.status == OutboxStatus.PENDING and job.status == JobStatus.QUEUED
+                # Expired lease on a PROCESSING row: the previous owner died
+                # mid-submit; re-run it under the same idempotency key (§11.7).
+                takeover = outbox.status in (OutboxStatus.PROCESSING, OutboxStatus.PENDING) and job.status in (
+                    JobStatus.SUBMITTING,
+                    JobStatus.CANCELLING,
+                )
+                if not (first_claim or takeover):
                     continue
-                check_transition(job.status, JobStatus.SUBMITTING)
-                job.status = JobStatus.SUBMITTING  # queued → submitting (§8.4)
-                tx.put(job, job.job_id)
+                if first_claim:
+                    check_transition(job.status, JobStatus.SUBMITTING)
+                    job.status = JobStatus.SUBMITTING  # queued → submitting (§8.4)
+                    tx.put(job, job.job_id)
                 outbox.status = OutboxStatus.PROCESSING
                 outbox.lease_owner = self._instance
                 outbox.lease_expires_at = now + self._lease_ms
@@ -191,7 +202,10 @@ class OutboxDispatcher:
         with self._store.transaction() as tx:
             due = [
                 o
-                for o in tx.query(InspectionOutbox, where=("status", "==", OutboxStatus.PENDING))
+                for o in tx.query(
+                    InspectionOutbox,
+                    where_in=("status", [OutboxStatus.PENDING, OutboxStatus.PROCESSING]),
+                )
                 if o.next_attempt_at <= now and (o.lease_expires_at or 0) <= now
             ][:limit]
             for outbox in due:
@@ -275,7 +289,13 @@ class PaymentInboxProcessor:
         with self._store.transaction() as tx:
             due = [
                 e
-                for e in tx.query(PaymentEvent, where=("processing_status", "==", PaymentEventStatus.RECEIVED))
+                for e in tx.query(
+                    PaymentEvent,
+                    where_in=(
+                        "processing_status",
+                        [PaymentEventStatus.RECEIVED, PaymentEventStatus.PROCESSING],
+                    ),
+                )
                 if e.next_attempt_at <= now and (e.lease_expires_at or 0) <= now
             ][:limit]
             for event in due:
