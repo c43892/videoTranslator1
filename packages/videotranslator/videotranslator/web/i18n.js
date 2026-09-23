@@ -1,4 +1,4 @@
-import {accountCopy} from './account-copy.js?v=20260923-credit-copy';
+import {accountCopy} from './account-copy.js?v=20260923-bonus';
 import {historyCopy} from './history-copy.js';
 export const copy = {
 en: {

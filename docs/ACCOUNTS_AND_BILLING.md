@@ -16,7 +16,11 @@
   duplicate that debit. Insufficient balance returns to top-up, with the quote
   retained. Changing the source invalidates the quote; changing the language
   preserves it. Retrying a failed job shows its saved price before charging.
-- Top-up packages: $1, $10, $50, $100. Top-ups are non-refundable; no cash refund
+- Top-up packages (cash paid → account credit): $1 → $1; $10 → $11 (+10%);
+  $50 → $60 (+20%); $100 → $130 (+30%). Bonus tiers use versioned v2 package IDs.
+  Pending payments keep their saved amount and credit; payment verification checks
+  cash paid while the ledger credits the saved balance including bonus exactly once.
+  Top-ups are non-refundable; no cash refund
   endpoint exists and live gateway refund methods reject requests.
 - Every failed task restores its actual ledger debit to usable account balance,
   exactly once, for the next translation. Uncharged tasks create no credit.
@@ -161,7 +165,7 @@ real Docker GPU engine connected; see [LOCAL_ENGINE.md](LOCAL_ENGINE.md).
 Standalone `local-ui` still rejects translation before charging. No local
 profile reports simulated work as successful or offers placeholder downloads.
 Stripe sandbox checkout, callback verification and balance crediting are verified
-as noted above; live payments and PayPal remain unconfigured. Firebase server
+as noted above; local live Stripe setup is described below; PayPal remains unconfigured. Firebase server
 credentials and external Chrome Google sign-in are verified as noted above.
 Docker Desktop is available at its per-user installation path; the Studio and
 GPU services are running in containers.
@@ -185,7 +189,7 @@ Failed task details distinguish returned account balance from cash refunds.
 The header refreshes when a balance return is observed.
 ## Payment-return recovery (2026-09-23)
 
-The local Stripe CLI listener must remain running to forward sandbox webhooks.
+The local Stripe CLI listener must remain running to forward webhooks for the configured payment mode.
 The return page can additionally POST to the owned payment's `/reconcile`
 endpoint when a notification was missed. The server retrieves the stored Stripe
 Checkout Session and verifies its ID, payment mode, paid/completed status,
@@ -200,3 +204,37 @@ message. Success shows the balance and a Continue translation button; prolonged
 or failed checks show Check payment again. Checks have bounded network waits and
 polling, and the pending payment survives reloads for the same signed-in user.
 This does not change Stripe sandbox/live mode or start translation automatically.
+
+## Local live Stripe setup (2026-09-23)
+
+The daybreak live merchant uses a dedicated restricted key named
+`VideoTranslator live backend`: Checkout Sessions write, Payment Intents read,
+Events read, and Stripe CLI Debugging Tools write. No payout, refund, account
+administration or general-purpose write permission is granted. Credentials stay
+in ignored local configuration, never in source control.
+
+For the existing local Docker deployment, `.env` selects `PAYMENT_MODE=live`,
+`STUDIO_STORE_FILE=store-stripe-live.db` and
+`STUDIO_QUEUE_FILE=inspection-queue-live.db`. The previous sandbox database,
+task history and configuration backup are retained separately; sandbox credit
+must not be imported into real balances. Firebase identities are unchanged and
+new live wallets start at zero.
+
+`deploy/stripe-listen.py` explicitly uses `stripe listen --live` for a live key
+and refuses a mode/key mismatch or a non-local forwarding destination. Run it
+with the project Python environment and the official Stripe CLI on PATH. It
+saves the CLI signing secret to `.env`; recreate the Studio container if that
+secret changes. Keep the listener running while accepting local payments;
+restart it after restarting Windows. Checkout return reconciliation also
+recovers a paid order whose webhook was missed, without double-crediting.
+
+The gateway rejects events and API responses whose `livemode` does not match
+the configured key. Live Checkout creation, retrieval and expiry were verified
+with an unpaid USD 1 session. No actual charge was submitted by the setup check.
+Payment completion and wallet credit still require a real user checkout.
+
+This enables real payments on `http://localhost:8090`; it does not deploy a
+public website. Public launch needs the actual HTTPS app domain, matching return
+URLs, a durable public Stripe webhook endpoint and its signing secret, plus the
+correct business website in Stripe. A temporary local CLI listener is not the
+public deployment's webhook service.

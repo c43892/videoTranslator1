@@ -33,6 +33,12 @@ class StripePaymentGateway:
         self._key = secret_key
         self._webhook_secret = webhook_secret
         self._base = base_url
+        self._livemode = (True if secret_key.startswith(('sk_live_', 'rk_live_')) else
+                          False if secret_key.startswith(('sk_test_', 'rk_test_')) else None)
+
+    def _check_mode(self, data):
+        if self._livemode is not None and data.get('livemode') is not self._livemode:
+            raise BackendError('stripe payment mode mismatch', failure_class=FailureClass.PERMANENT)
 
     def create_session(self, request: PaymentSessionRequest) -> PaymentSession:
         httpx = _httpx()
@@ -55,6 +61,7 @@ class StripePaymentGateway:
         if resp.status_code >= 400:
             raise BackendError(f"stripe checkout failed: {resp.status_code}")
         data = resp.json()
+        self._check_mode(data)
         return PaymentSession(
             payment_id=request.payment_id,
             provider=self.provider,
@@ -76,6 +83,7 @@ class StripePaymentGateway:
         if abs(time.time() - int(timestamp)) > 300:
             raise BackendError("stale stripe webhook", failure_class=FailureClass.PERMANENT)
         event = json.loads(raw_body)
+        self._check_mode(event)
         obj = event.get("data", {}).get("object", {})
         return PaymentEventData(
             provider=self.provider,
@@ -97,6 +105,7 @@ class StripePaymentGateway:
             if resp.status_code >= 400:
                 raise BackendError(f'stripe checkout lookup failed: {resp.status_code}')
             data = resp.json()
+            self._check_mode(data)
             if data.get('id') != provider_payment_id or data.get('mode') != 'payment':
                 raise BackendError('stripe checkout mismatch', failure_class=FailureClass.PERMANENT)
             return PaymentSnapshot(
@@ -110,6 +119,7 @@ class StripePaymentGateway:
         if resp.status_code >= 400:
             raise BackendError(f"stripe lookup failed: {resp.status_code}")
         data = resp.json()
+        self._check_mode(data)
         return PaymentSnapshot(
             provider_payment_id=provider_payment_id,
             status="completed" if data.get("status") == "succeeded" else "pending",

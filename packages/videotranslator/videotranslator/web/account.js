@@ -1,10 +1,12 @@
 // Firebase owns credentials and token refresh. Money always comes from the API.
 import {verifyReturnedPayment} from './payment-verification.js?v=20260923-payment';
+import {packageLabel} from './topup-packages.js?v=20260923-bonus';
 export async function createAccount({config, api, t, changed, report}) {
   const $ = id => document.getElementById(id);
   let user = null, sdk, auth, balance = null, lastRefresh = 0, generation = 0, paymentBusy = false;
   let authErrorKeys = [];
   let paymentState = 'choose', paymentMessage = '', lastPaymentCheck = 0;
+  let topupPackages = [];
   const money = cents => new Intl.NumberFormat(document.documentElement.lang, {style:'currency', currency:'USD', currencyDisplay:'code'}).format(cents / 100);
   const sessionKey = () => `vt.checkout.${user?.uid}`;
   function paymentView(state, message = '') {
@@ -36,6 +38,17 @@ export async function createAccount({config, api, t, changed, report}) {
     $('google-signin').disabled = !auth; $('email-submit').disabled = !auth;
     $('reset-password').disabled = !auth;
     renderPayment();
+    renderPackages();
+  }
+  function renderPackages() {
+    if (!topupPackages.length) return;
+    const select = $('topup-package'), selected = select.value;
+    select.replaceChildren();
+    for (const p of topupPackages) {
+      const option = document.createElement('option'); option.value = p.package_id;
+      option.textContent = packageLabel(p, money, t); select.append(option);
+    }
+    if (topupPackages.some(p => p.package_id === selected)) select.value = selected;
   }
   async function refresh() {
     if (!user) return;
@@ -103,8 +116,7 @@ export async function createAccount({config, api, t, changed, report}) {
     $('payment-sandbox').hidden = config.payment_mode !== 'sandbox';
     for (const provider of ['stripe','paypal']) $(`pay-${provider}`).disabled = !config.payment_providers.includes(provider);
     try {
-      const {packages} = await api('/billing/packages'); $('topup-package').replaceChildren();
-      for (const p of packages) {const option = document.createElement('option'); option.value = p.package_id; option.textContent = `${money(p.amount_minor)}`; $('topup-package').append(option);}
+      const {packages} = await api('/billing/packages'); topupPackages = packages; renderPackages();
     } catch (error) {$('payment-status').textContent = t(error.message);}
   }
   async function checkout(provider) {

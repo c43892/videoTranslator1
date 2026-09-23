@@ -33,6 +33,7 @@ const creditCopy = {
 for (const [locale, entries] of Object.entries(creditCopy)) Object.assign(accountCopy[locale] ||= {}, Object.fromEntries(['failureCreditPolicy','balanceReturned','creditReusable','creditPending','noTaskDebit','balanceReturnedTime'].map((key,index) => [key,entries[index]])));
 
 Object.assign(accountCopy.en, {
+ topupCreditLabel:'Pay {pay} → {credit} balance', topupBonusLabel:'{percent}% bonus',
  paymentVerifyTitle:'Confirming your payment', paymentSuccessTitle:'Top-up complete',
  paymentNoRepeat:'No need to pay again. You can close this window while we confirm your payment.',
  paymentRetry:'Check payment again', paymentDone:'Continue translation',
@@ -41,6 +42,7 @@ Object.assign(accountCopy.en, {
  paymentNotCompleted:'This payment has not completed. Check its status before making another payment.'
 });
 Object.assign(accountCopy.zh, {
+ topupCreditLabel:'充值 {pay} → 到账 {credit}', topupBonusLabel:'赠送 {percent}%',
  paymentVerifyTitle:'确认付款结果', paymentSuccessTitle:'充值已到账',
  paymentNoRepeat:'无需再次付款。核实期间可以关闭此窗口。',
  paymentRetry:'重新核实付款', paymentDone:'继续译制',

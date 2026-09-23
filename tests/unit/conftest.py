@@ -22,6 +22,13 @@ def container(tmp_path):
         cost=CostPolicy(daily_budget_minor=10_000, monthly_budget_minor=100_000),
         # Existing ledger regressions use an explicit historical 100-unit rate.
         pricing=PricingConfig(),
+        # Historical payment fixtures retain their original checkout terms.
+        topup_packages=(
+            ('points_1_v1','USD',100,100,'topup-v1'),
+            ('points_10_v1','USD',1000,1000,'topup-v1'),
+            ('points_50_v1','USD',5000,5000,'topup-v1'),
+            ('points_100_v1','USD',10000,10000,'topup-v1'),
+        ),
     )
     c = build_container(settings)
     c.seed()

@@ -1,9 +1,9 @@
-import {copy, normalizeLocale} from './i18n.js?v=20260923-credit-copy';
-import {createLanguagePicker} from './language-picker.js?v=20260923-credit-copy';
-import {createAccount} from './account.js?v=20260923-credit-copy';
-import {createHistory} from './history.js?v=20260923-credit-copy';
-import {authenticatedFetch} from './authenticated-request.js?v=20260923-credit-copy';
-import {createErrorNotice} from './error-notice.js?v=20260923-credit-copy';
+import {copy, normalizeLocale} from './i18n.js?v=20260923-bonus';
+import {createLanguagePicker} from './language-picker.js?v=20260923-bonus';
+import {createAccount} from './account.js?v=20260923-bonus';
+import {createHistory} from './history.js?v=20260923-bonus';
+import {authenticatedFetch} from './authenticated-request.js?v=20260923-bonus';
+import {createErrorNotice} from './error-notice.js?v=20260923-bonus';
 
 const $ = id => document.getElementById(id);
 const languagePicker = createLanguagePicker($('locale'));

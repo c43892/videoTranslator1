@@ -55,9 +55,9 @@ class Settings:
     topup_packages: tuple = (
         # package_id, currency, amount_minor, point_units, pricing_version
         ("points_1_v1", "USD", 100, 100, "topup-v1"),
-        ("points_10_v1", "USD", 1000, 1000, "topup-v1"),
-        ("points_50_v1", "USD", 5000, 5000, "topup-v1"),
-        ("points_100_v1", "USD", 10000, 10000, "topup-v1"),
+        ("points_10_v2", "USD", 1000, 1100, "topup-bonus-v2"),
+        ("points_50_v2", "USD", 5000, 6000, "topup-bonus-v2"),
+        ("points_100_v2", "USD", 10000, 13000, "topup-bonus-v2"),
     )
 
     @property
