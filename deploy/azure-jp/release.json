@@ -1,9 +1,9 @@
 {
   "public_url": "https://vidyi.cc",
-  "gpu_revision": "videotranslator-gpu--audio-legacy-20260924",
+  "gpu_revision": "videotranslator-gpu--audio-b6694b3",
   "images": {
     "control": "vtranslatorjpe43892.azurecr.io/videotranslator/control@sha256:ee1f1cc20f4023ee00530620351aebe4b745acc441b9f543ea6a335c9f7bf2da",
-    "engine": "vtranslatorjpe43892.azurecr.io/videotranslator/engine@sha256:763c747924130e5b121e7560ced201200e59e90aa2730a613a701314b4a3ded2",
+    "engine": "vtranslatorjpe43892.azurecr.io/videotranslator/engine@sha256:55438dd111303659767186df71508a97542445a9e9cd47b48347f1a62e54297e",
     "tts": "vtranslatorjpe43892.azurecr.io/videotranslator/tts@sha256:512ffe135fd52c8b5fbd72c4fd066a028368bfda11385634474847e950153122"
   },
   "gpu_min_replicas": 0,

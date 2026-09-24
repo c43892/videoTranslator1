@@ -332,8 +332,10 @@ This changes neither the GPU minimum of zero nor the maximum of one replica.
 The engine was rebuilt as a minimal layer on the previous production image. Only
 `transcription.py`, `segmentation.py`, `media.py` and `pipeline.py` were replaced;
 the deferred reverse-connected GPU Worker Pool code was not included. Engine tests
-for segmentation and timeline assembly passed locally (28 tests), and the new
+for segmentation and timeline assembly passed locally (28 tests), and the final
 Azure revision reached `Healthy` before the previous revision was deactivated.
-The revision returned to zero replicas while idle. The previous engine digest
+The final revision uses engine digest
+`sha256:55438dd111303659767186df71508a97542445a9e9cd47b48347f1a62e54297e` and
+returned to zero replicas while idle. The previous production digest
 `sha256:4cf5c555d6f7019c9a44754ea08824cfe356d6cc1bdbaead7c27d3bb6c45a0c8` remains
 available in ACR for rollback.
