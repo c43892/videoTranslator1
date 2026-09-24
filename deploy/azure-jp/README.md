@@ -325,3 +325,15 @@ normal scale-down. TCP readiness indicates the service process has started. The 
 still requires HTTP `/health` to report model readiness before processing any job,
 and retains activity/heartbeat supervision. No public ingress exposes the model.
 This changes neither the GPU minimum of zero nor the maximum of one replica.
+
+
+### 2026-09-24 legacy dialogue alignment release
+
+The engine was rebuilt as a minimal layer on the previous production image. Only
+`transcription.py`, `segmentation.py`, `media.py` and `pipeline.py` were replaced;
+the deferred reverse-connected GPU Worker Pool code was not included. Engine tests
+for segmentation and timeline assembly passed locally (28 tests), and the new
+Azure revision reached `Healthy` before the previous revision was deactivated.
+The revision returned to zero replicas while idle. The previous engine digest
+`sha256:4cf5c555d6f7019c9a44754ea08824cfe356d6cc1bdbaead7c27d3bb6c45a0c8` remains
+available in ACR for rollback.
