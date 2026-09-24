@@ -7,7 +7,7 @@ from .segmentation import parse_words, segment_dialogue, SEGMENTATION_VERSION
 from .punctuation import apply_punctuation
 from .references import segment_reference
 
-PIPELINE_VERSION = '2026-09-22.1'
+PIPELINE_VERSION = '2026-09-24.legacy-alignment-v1'
 
 def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:20]
@@ -117,7 +117,8 @@ class Pipeline:
         manifest['audio_events'] = events
         manifest['turn_boundaries'] = transcript.get('turn_boundaries', [])
         segments = segment_dialogue(words, config.emotion_reference_max_seconds, audio_events=events,
-                                    turn_boundaries=manifest['turn_boundaries'])
+                                    turn_boundaries=manifest['turn_boundaries'],
+                                    utterances=transcript.get('utterances', []))
         manifest['warnings'] = list(punctuation_warnings)
         if not segments:
             manifest['warnings'].append('未识别到可替换的对白，保留原音轨。')
@@ -206,8 +207,8 @@ class Pipeline:
 
         manifest['completion_policy'] = 'preserve_original_on_segment_review'
         manifest['voice_reference_policy'] = 'current_original_segment_for_both_prompts'
-        manifest['dialogue_policy'] = 'preserve_source_except_successful_dialogue'
-        manifest['splice_policy'] = 'raised_cosine_5ms_v1'
+        manifest['dialogue_policy'] = 'legacy_background_plus_dubbed_and_explicit_fallback_only'
+        manifest['splice_policy'] = 'legacy_adaptive_100ms_v1'
         manifest['warnings'].extend(
             f'{s.id}（{s.start:.2f}–{s.end:.2f} 秒）未替换，已保留原对白：' + '; '.join(s.flags)
             for s in segments if s.render_status == 'original')

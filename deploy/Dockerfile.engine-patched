@@ -52,3 +52,15 @@ RUN cd /app && patch -p1 < /tmp/turn-boundaries.patch \
     && python -c "import shutil; root=__import__('videotranslator').__path__[0]; [shutil.copyfile('/app/backend/videotranslator/'+n+'.py',root+'/'+n+'.py') for n in ['segmentation','pipeline','scribe']]"
 COPY deploy/engine-patches/test_scribe_turns.py /tmp/test_scribe_turns.py
 RUN pytest -q /tmp/test_scribe_turns.py /tmp/test_synthesis_limits.py /app/tests/test_segmentation.py /app/tests/test_punctuation.py /app/tests/test_pipeline.py /tmp/test_soft_subtitles.py /tmp/test_force_duration_fit.py /app/tests/test_media.py /tmp/test_whisper_empty_words.py
+
+# Keep the local studio image on the repository's current engine behavior after
+# applying the historical recovery patches above.
+COPY engine/backend/videotranslator/transcription.py /app/backend/videotranslator/transcription.py
+COPY engine/backend/videotranslator/segmentation.py /app/backend/videotranslator/segmentation.py
+COPY engine/backend/videotranslator/media.py /app/backend/videotranslator/media.py
+COPY engine/backend/videotranslator/pipeline.py /app/backend/videotranslator/pipeline.py
+COPY engine/tests/test_segmentation.py /app/tests/test_segmentation.py
+COPY engine/tests/test_media.py /app/tests/test_media.py
+COPY engine/tests/test_pipeline.py /app/tests/test_pipeline.py
+RUN python -c "import shutil; root=__import__('videotranslator').__path__[0]; [shutil.copyfile('/app/backend/videotranslator/'+n+'.py',root+'/'+n+'.py') for n in ['transcription','segmentation','media','pipeline']]" \
+    && pytest -q /app/tests/test_segmentation.py /app/tests/test_media.py /app/tests/test_pipeline.py

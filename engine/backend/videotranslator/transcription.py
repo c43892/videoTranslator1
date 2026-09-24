@@ -170,7 +170,7 @@ class WhisperDiarizedTranscriber:
                 transcript = require_success(client.post(self.config.openai_base_url.rstrip('/') + '/audio/transcriptions',
                     headers={'Authorization': 'Bearer ' + self.config.openai_api_key},
                     data={'model': self.config.whisper_model, 'response_format': 'verbose_json',
-                          'timestamp_granularities[]': 'word', 'temperature': '0'},
+                          'timestamp_granularities[]': ['word', 'segment'], 'temperature': '0'},
                     files={'file': ('dialogue.mp3', f, 'audio/mpeg')}), 'OpenAI Whisper')
             if not isinstance(transcript.get('words'), list):
                 raise ProviderError('Whisper response has no word-level timestamps')
@@ -202,7 +202,14 @@ def whisper_timed_words(transcript, duration):
         words.append({'type':'word', 'text':text, 'start':start, 'end':end, 'speaker_id':''})
     if transcript.get('text', '').strip() and not words:
         raise ProviderError('Whisper returned speech without usable word timestamps')
-    return {'text':transcript.get('text',''), 'language_code':transcript.get('language',''), 'words':words}
+    utterances = []
+    for raw in transcript.get('segments', []):
+        if not isinstance(raw, dict) or not isinstance(raw.get('text'), str) or not raw['text'].strip():
+            continue
+        start, end = timed_interval(raw, duration)
+        utterances.append({'text': raw['text'].strip(), 'start': start, 'end': end})
+    return {'text':transcript.get('text',''), 'language_code':transcript.get('language',''),
+            'words':words, 'utterances':utterances, 'provider':'openai-whisper'}
 
 
 class WhisperTranscriber(WhisperDiarizedTranscriber):

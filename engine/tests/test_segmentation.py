@@ -52,7 +52,7 @@ def test_nonfinite_timestamps_are_ignored():
 
 
 
-def test_short_clauses_merge_forward_and_short_tail_backward():
+def test_legacy_complete_sentences_then_close_subtitles_merge():
     result=segment_dialogue([w('One,',0,1),w('two.',1.1,2),w('three!',2.1,3.5),w('Tail.',3.6,4.2)])
     assert [s.source_text for s in result]==['One, two.','three!','Tail.']
     assert [(s.start,s.end) for s in result]==[(0,2),(2.1,3.5),(3.6,4.2)]
@@ -61,6 +61,29 @@ def test_short_clauses_merge_forward_and_short_tail_backward():
 def test_complete_three_second_sentence_keeps_its_boundary():
     result=segment_dialogue([w('One.',0,3),w('Two.',4,5)])
     assert len(result)==2 and result[0].end==3
+
+
+def test_provider_utterances_are_primary_editing_units_and_close_ones_merge():
+    words=[w('Hello.',0,.7),w('How',1,1.3),w('are',1.3,1.5),w('you?',1.5,2),
+           w('Later.',3,4)]
+    utterances=[{'start':0,'end':.7,'text':'Hello.'},{'start':1,'end':2,'text':'How are you?'},
+                {'start':3,'end':4,'text':'Later.'}]
+    result=segment_dialogue(words,utterances=utterances)
+    assert [(s.start,s.end,s.source_text) for s in result]==[(0,.7,'Hello.'),(1,2,'How are you?'),(3,4,'Later.')]
+
+
+def test_provider_segment_bounds_override_inner_word_bounds():
+    result=segment_dialogue([w('Hello.',1.2,1.8)],
+                            utterances=[{'start':1,'end':2,'text':'Hello.'}])
+    assert [(s.start,s.end) for s in result]==[(1,2)]
+
+
+def test_provider_utterances_under_200ms_merge_up_to_ten_seconds():
+    words=[w('One.',0,2),w('Two.',2.1,4),w('Three.',4.1,11)]
+    utterances=[{'start':0,'end':2,'text':'One.'},{'start':2.1,'end':4,'text':'Two.'},
+                {'start':4.1,'end':11,'text':'Three.'}]
+    result=segment_dialogue(words,utterances=utterances)
+    assert [(s.start,s.end,s.source_text) for s in result]==[(0,4,'One. Two.'),(4.1,11,'Three.')]
 
 
 def test_short_clauses_merge_without_identity_inference():

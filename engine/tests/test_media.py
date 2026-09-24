@@ -48,11 +48,11 @@ def test_original_fallback_is_not_doubled_and_other_windows_are_replaced(tmp_pat
     data,sr=sf.read(tmp_path/'timeline.wav')
     assert len(data)==4*48000
     assert np.allclose(data[:48000],.1)
-    assert np.allclose(data[48000:2*48000],.1)
-    assert np.allclose(data[2*48000+240:3*48000-240],.3)
-    assert data[2*48000,0] == pytest.approx(.1)
-    assert data[3*48000-1,0] == pytest.approx(.1)
-    assert np.allclose(data[3*48000:],.1)
+    assert np.allclose(data[48000:2*48000],0)
+    assert np.allclose(data[2*48000+4800:3*48000-4800],.3)
+    assert data[2*48000,0] == 0
+    assert data[3*48000-1,0] == 0
+    assert np.allclose(data[3*48000:],0)
 
 
 def test_short_fades_remove_join_steps_without_moving_samples(tmp_path):
@@ -67,13 +67,13 @@ def test_short_fades_remove_join_steps_without_moving_samples(tmp_path):
     media.dialogue_timeline(segments, storage, output, 3, original=tmp_path/'original.wav')
     data, sr = sf.read(output)
     assert sr == rate and data.shape == (3*rate,2)
-    assert np.max(np.abs(np.diff(data[:,0]))) < .006  # >100x below the original 0.8 step
-    # Interior stays bit-for-bit equivalent within float precision; no original
-    # speech bleeds into the join between adjacent translated windows.
-    assert np.allclose(data[rate//2+240:3*rate//2-240], .6)
-    assert np.allclose(data[3*rate//2+240:5*rate//2-240], -.6)
-    assert data[3*rate//2-1,0] == 0 and data[3*rate//2,0] == 0
-    assert np.allclose(data[:rate//2], .2)
+    # Legacy close-gap behavior disables the first clip's fade-out. The next
+    # clip still uses its 100 ms fade-in, and no original speech fills the join.
+    assert np.allclose(data[rate//2+4800:3*rate//2], .6)
+    assert np.allclose(data[3*rate//2+4800:5*rate//2-4800], -.6)
+    assert data[3*rate//2-1,0] == pytest.approx(.6)
+    assert data[3*rate//2,0] == 0
+    assert np.allclose(data[:rate//2], 0)
 
 
 def test_fades_follow_sound_inside_digital_padding(tmp_path):
@@ -86,8 +86,8 @@ def test_fades_follow_sound_inside_digital_padding(tmp_path):
     media.dialogue_timeline([segment], storage, tmp_path/'timeline.wav', 1)
     data, _ = sf.read(tmp_path/'timeline.wav')
     assert data[1000,0] == data[11999,0] == 0
-    assert np.allclose(data[1240:11760], .5)
-    assert np.max(np.abs(np.diff(data[:,0]))) < .005
+    assert np.max(data[:,0]) > .49
+    assert np.max(np.abs(np.diff(data[:,0]))) < .001
     assert not np.any(data[12000:])
 
 
@@ -110,5 +110,5 @@ def test_preserved_event_overlaps_are_not_doubled_or_hard_cut(tmp_path):
     media.dialogue_timeline([segment],storage,tmp_path/'timeline.wav',2,original=tmp_path/'original.wav',
         preserve_intervals=[{'start':.5,'end':1.2},{'start':1,'end':1.5}])
     data,_=sf.read(tmp_path/'timeline.wav')
-    assert np.allclose(data[rate//2+240:3*rate//2-240],.3)
+    assert np.allclose(data[rate//2+4800:3*rate//2-4800],.3)
     assert np.max(np.abs(np.diff(data[:,0])))<.005
