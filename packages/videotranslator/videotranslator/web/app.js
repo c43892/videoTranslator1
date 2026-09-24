@@ -1,9 +1,10 @@
-import {copy, normalizeLocale} from './i18n.js?v=20260923-bonus';
-import {createLanguagePicker} from './language-picker.js?v=20260923-bonus';
-import {createAccount} from './account.js?v=20260923-bonus';
-import {createHistory} from './history.js?v=20260923-bonus';
-import {authenticatedFetch} from './authenticated-request.js?v=20260923-bonus';
-import {createErrorNotice} from './error-notice.js?v=20260923-bonus';
+import {copy, normalizeLocale} from './i18n.js?v=20260924-auto-queue';
+import {createLanguagePicker} from './language-picker.js?v=20260923-stripe-env';
+import {createAccount} from './account.js?v=20260923-stripe-env';
+import {createHistory, queueMessageKey} from './history.js?v=20260924-auto-queue';
+import {authenticatedFetch} from './authenticated-request.js?v=20260923-stripe-env';
+import {createErrorNotice} from './error-notice.js?v=20260923-stripe-env';
+import {uploadBlob} from './blob-upload.js?v=20260923-azure';
 
 const $ = id => document.getElementById(id);
 const languagePicker = createLanguagePicker($('locale'));
@@ -18,7 +19,7 @@ if (preferredLocale) {
   preferredLocale = normalizeLocale(preferredLocale);
   saved('vt.locale', preferredLocale); language = preferredLocale;
 }
-const conversationKey = () => `vt.conversation.${owner}`;
+const conversationKey = () => `vt.conversation.${config?.payment_mode || 'disabled'}.${owner}`;
 const t = key => copy[language]?.[key] || copy.en[key] || key;
 const errorNotice = createErrorNotice({element:$('error'), t,
   isRunning:() => !!draft?.job && !['succeeded','failed','cancelled','expired'].includes(draft.job.status)});
@@ -39,13 +40,14 @@ function localize() {
   languagePicker.update(language, t('auto'));
   authLanguagePicker.update(language, t('auto'));
   account?.localize();
+  $('payment-mode-badge').hidden = config?.payment_mode !== 'sandbox';
   history?.render();
 }
 
 async function api(path, body, method = body === undefined ? 'GET' : 'POST') {
   const requestOwner = owner;
   const response = await authenticatedFetch('/api/v1' + path, {
-    method, headers: body === undefined ? {} : {'Content-Type': 'application/json'},
+    method, headers: {'X-Payment-Mode': config?.payment_mode || 'disabled', ...(body === undefined ? {} : {'Content-Type': 'application/json'})},
     body: body === undefined ? undefined : JSON.stringify(body),
   }, {getToken: force => tokenProvider?.(force), isCurrent: () => owner === requestOwner});
   if (!response.ok) {
@@ -207,7 +209,14 @@ function renderReview(parent) {
 function renderJob(parent) {
   const job = draft.job, status = job?.stage === 'queued' && job?.status === 'provisioning' ? 'queued' : job?.status || draft.status;
   const card = node('div','job-card'); card.append(node('div','card-heading',t('confirmTitle')));
-  const body = node('div','job-body'); body.append(node('div','',t(status)));
+  const body = node('div','job-body'); body.append(node('div','',t(status === 'awaiting_capacity' ? queueMessageKey(job) : status)));
+  if (!job && draft.download?.status === 'queued') {
+    const attempts = draft.download.unavailable_retries;
+    body.append(node('p', 'notice', attempts ? `${t('downloadReconnecting')} (${attempts}/10)` : t('downloadQueued')));
+  }
+  if (!job && draft.status === 'import_failed' && draft.error === 'youtube_proxy_unavailable') {
+    body.append(node('p', 'notice', t('downloadUnavailable')));
+  }
   if (job?.error_code === 'processing_unavailable' && config.processing_available === false) body.append(node('p','notice',t('processing_unavailable')));
   for (const warning of job?.warnings || []) body.append(node('p', 'notice', warning));
   if (job) {
@@ -219,11 +228,11 @@ function renderJob(parent) {
     if (['running','provisioning','submitting'].includes(status)) {const progress = node('progress'); progress.max = 100; progress.value = job.progress_percent || 0; progress.ariaLabel = t('progress'); body.append(progress);}
     const choices = node('div','secondary-actions');
     if (status === 'awaiting_credits') choices.append(button(t('topup'), account.openTopup));
-    if (config.processing_available !== false && ['awaiting_credits','awaiting_capacity'].includes(status)) choices.append(button(t('start'), () => reviewJobAction('start'), 'primary'));
-    if (['queued','submitting','provisioning','running'].includes(status)) choices.append(button(t('cancel'), () => jobAction('cancel')));
+    if (config.processing_available !== false && status === 'awaiting_credits') choices.append(button(t('start'), () => reviewJobAction('start'), 'primary'));
+    if (['awaiting_capacity','queued','submitting','provisioning','running'].includes(status)) choices.append(button(t('cancel'), () => jobAction('cancel')));
     if (status === 'succeeded') {
       choices.append(button(t('download'), downloadResult, 'primary'));
-      if (config.local) choices.append(button(t('previewResult'), () => previewResult(job, body)));
+      choices.append(button(t('previewResult'), () => previewResult(job, body)));
     }
     if (config.processing_available !== false && status === 'failed' && (job.retry_allowed || job.error_code === 'processing_unavailable')) choices.append(button(t('retry'), () => reviewJobAction('retry'), 'primary'));
     body.append(choices);
@@ -258,7 +267,12 @@ async function resumeUpload() {
     const upload = await api(`/uploads/${draft.upload_id}/renew`, {});
     const token = await tokenProvider(); uploadPercent = 0;
     const url = config.local ? `/api/v1/uploads/${upload.upload_id}/content` : upload.upload_url;
-    await new Promise((resolve, reject) => {
+    if (!config.local) {
+      await uploadBlob(selectedFile, url, {
+        renew: () => api(`/uploads/${upload.upload_id}/renew`, {}),
+        onProgress: (loaded, total) => {uploadPercent = Math.round(loaded * 100 / total); $('actions').replaceChildren(); renderJob($('actions')); setBusy(true);}
+      });
+    } else await new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest(); xhr.open('PUT', url);
       if (config.local) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
       else xhr.setRequestHeader('x-ms-blob-type', 'BlockBlob');
@@ -298,6 +312,7 @@ async function previewResult(job, parent) {
   parent.querySelector('video, audio')?.remove();
   const player = node(job.media_type === 'audio' ? 'audio' : 'video');
   player.controls = true; player.preload = 'metadata'; player.style.width = '100%';
+  player.crossOrigin = 'anonymous'; player.playsInline = true;
   player.src = result.download_url; player.ariaLabel = t('previewResult');
   if (job.media_type !== 'audio' && result.subtitle_url) {
     const track = node('track');
@@ -327,9 +342,11 @@ function schedulePoll() {
   timer = setTimeout(async () => {
     if (!busy) try {
       const returnedBefore = draft.job?.refund_status;
+      const chargedBefore = draft.job?.charged_ledger_entry_id;
       draft = await api(`/conversations/${draft.conversation_id}`);
       errorNotice.recovered('poll');
-      if (draft.job?.refund_status === 'completed' && returnedBefore !== 'completed') await account.refresh();
+      if ((draft.job?.refund_status === 'completed' && returnedBefore !== 'completed') ||
+          (draft.job?.charged_ledger_entry_id && draft.job.charged_ledger_entry_id !== chargedBefore)) await account.refresh();
       render();
     } catch (error) {showError(error, {background:true, source:'poll'});}
     schedulePoll();

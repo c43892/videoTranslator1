@@ -24,6 +24,7 @@ from typing import Any
 
 from .domain.enums import StaleVersion
 from .domain.conversation import Conversation
+from .domain.downloads import DownloadTask, DownloadWorker
 from .domain.models import (
     CapacityCounter,
     CostBudgetPeriod,
@@ -34,6 +35,7 @@ from .domain.models import (
     JobOutbox,
     LedgerEntry,
     Payment,
+    PaymentEnvironmentRecord,
     PaymentEvent,
     PricingConfig,
     UploadSession,
@@ -47,11 +49,14 @@ _KINDS: dict[str, type[Document]] = {
     cls.COLLECTION: cls
     for cls in (
         Conversation,
+        DownloadTask,
+        DownloadWorker,
         User,
         UploadSession,
         Job,
         LedgerEntry,
         Payment,
+        PaymentEnvironmentRecord,
         PaymentEvent,
         PricingConfig,
         JobOutbox,
@@ -182,6 +187,9 @@ class _OverlayTx:
 
 
 _ID_ATTRS: dict[str, tuple[str, ...]] = {
+    "download_tasks": ("task_id",),
+    "download_workers": ("worker_id",),
+    "payment_environments": ("environment_id",),
     "conversations": ("conversation_id",),
     "users": ("user_id",),
     "upload_sessions": ("upload_id",),

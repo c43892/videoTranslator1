@@ -1,5 +1,7 @@
 # Azure 日本东部资源准备记录
 
+> **最新实施状态（2026-09-23）**：CPU VM、ACR、项目双容器和私有数据库已部署，HTTPS、Stripe Sandbox 回调、真实 Blob 上传及 T4 模型就绪已验证。最新镜像、验收结果和未解决项以 [部署验收记录](AZURE_JAPAN_DEPLOYMENT_VALIDATION.md) 为准。下文保留初次门户创建时的记录，其中“尚未创建 CPU / 尚未上传模型”等描述为历史状态。
+
 更新日期：2026-09-23。通过外部 Chrome 的 Azure Portal 操作。
 
 ## 预算约束
@@ -42,17 +44,17 @@
 - 系统日志显示官方验证镜像成功拉取，大小 7,530,872,832 bytes，用时 94.70 秒。
 - 初始 Startup probe 失败出现在模型下载与加载期间；17:17:56 UTC 应用日志显示 `Model loaded successfully.`，随后 Flask 在端口 80 启动，修订状态转为 Running。
 - 已在 Scale 页面核实：min 0 / max 1，cooldown 300 秒，polling 30 秒，HTTP scaling。当前配置还没有接入项目任务队列。
+- 2026-09-23 13:22（America/Toronto）门户修订列表显示 **Scaled to 0**、**0 replicas**，已验证首次启动后自动缩回零副本。测试应用仅内网可访问，未对外产生业务请求。
 - 以上只验证基础部署及测试镜像启动，不代表已测试 Demucs、IndexTTS2、YouTube 下载或业务任务。
 
 ## 尚未完成
 
-- 验证 GPU 分配和回到零副本。
-- 存储挂载及应用连接、容器镜像仓库和 CPU 主机的资源创建与连接。
+- 配置项目容器的实际存储挂载及应用连接；容器镜像仓库和 CPU 主机的资源创建与连接。
 - 项目镜像适配、推送和应用部署。
 - 私有 DNS、跨容器文件、存储权限、数据库连接和任务触发缩容配置。
 - T4 上 Demucs / IndexTTS2 验收，以及上传到结果下载的完整任务验证。
 
-当前不能宣称资源部署完成或网站已上线。架构及后续改造见 `AZURE_JAPAN_T4_MIGRATION_PLAN.md`。
+本轮 GPU 验证基础设施及存储准备已完成，项目完整部署和网站上线尚未完成。架构及后续改造见 `AZURE_JAPAN_T4_MIGRATION_PLAN.md`。
 
 ## 存储创建进展
 

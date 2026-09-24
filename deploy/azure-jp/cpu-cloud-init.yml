@@ -1,0 +1,11 @@
+#cloud-config
+package_update: true
+packages:
+  - docker.io
+  - docker-compose-v2
+  - cifs-utils
+  - openssl
+runcmd:
+  - [systemctl, enable, --now, docker]
+  - [mkdir, -p, /srv/videotranslator/studio-data/tmp, /srv/videotranslator/secrets/postgres-tls, /mnt/videotranslator-data]
+  - [chown, -R, '10001:10001', /srv/videotranslator/studio-data]

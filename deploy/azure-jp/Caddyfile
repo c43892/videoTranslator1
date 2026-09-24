@@ -1,0 +1,13 @@
+{$PUBLIC_HOST}, vtranslator-jpe-43892.japaneast.cloudapp.azure.com {
+    encode zstd gzip
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy strict-origin-when-cross-origin
+        -Server
+    }
+    reverse_proxy web:8000
+}
+
+www.vidyi.cc {
+    redir https://vidyi.cc{uri} permanent
+}

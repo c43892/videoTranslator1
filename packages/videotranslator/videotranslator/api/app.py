@@ -78,6 +78,13 @@ class PatchJobRequest(BaseModel):
 def create_app(container: Container) -> FastAPI:
     app = FastAPI(title="VideoTranslator 2.0 Control API", version="2.0.0")
 
+    @app.middleware('http')
+    async def check_browser_payment_mode(request: Request, call_next):
+        expected = request.headers.get('x-payment-mode')
+        if expected and expected != container.settings.payment_mode and request.url.path.startswith('/api/v1/'):
+            return JSONResponse(status_code=409, content={'detail': {'code': 'payment_environment_changed'}})
+        return await call_next(request)
+
     @app.exception_handler(BackendError)
     @app.exception_handler(httpx.RequestError)
     async def backend_unavailable(request, exc):
@@ -321,7 +328,7 @@ def create_app(container: Container) -> FastAPI:
 
     @app.on_event("startup")
     async def start_processors():
-        if container.settings.profile.startswith("azure"):
+        if container.settings.profile.startswith("azure") and container.settings.profile != "azure-jp-t4":
             return  # Container Apps Jobs run the processors in cloud profiles
         container.seed()
         container.jobs.recover_simulated_results()

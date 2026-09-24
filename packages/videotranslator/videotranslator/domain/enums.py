@@ -32,10 +32,10 @@ ALLOWED_TRANSITIONS: dict[JobStatus, frozenset[JobStatus]] = {
         {JobStatus.AWAITING_CREDITS, JobStatus.AWAITING_CAPACITY, JobStatus.QUEUED, JobStatus.FAILED}
     ),
     JobStatus.AWAITING_CREDITS: frozenset(
-        {JobStatus.QUEUED, JobStatus.AWAITING_CAPACITY, JobStatus.EXPIRED}
+        {JobStatus.QUEUED, JobStatus.AWAITING_CAPACITY, JobStatus.EXPIRED, JobStatus.CANCELLED}
     ),
     JobStatus.AWAITING_CAPACITY: frozenset(
-        {JobStatus.QUEUED, JobStatus.AWAITING_CREDITS, JobStatus.EXPIRED}
+        {JobStatus.QUEUED, JobStatus.AWAITING_CREDITS, JobStatus.EXPIRED, JobStatus.CANCELLED}
     ),
     JobStatus.QUEUED: frozenset({JobStatus.SUBMITTING, JobStatus.CANCELLED}),
     JobStatus.SUBMITTING: frozenset(

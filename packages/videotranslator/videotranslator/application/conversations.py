@@ -20,10 +20,11 @@ def locale(value: str) -> str:
 
 class ConversationService:
     def __init__(self, store, jobs, storage, settings, interpreter: ConversationInterpreter,
-                 importer: VideoSourceImporter, validate_url, inspector, funding):
+                 importer: VideoSourceImporter, validate_url, inspector, funding, home_downloads=None):
         self.store, self.jobs, self.storage, self.settings = store, jobs, storage, settings
         self.interpreter, self.importer, self.validate_url = interpreter, importer, validate_url
         self.inspector, self.funding = inspector, funding
+        self.home_downloads = home_downloads
 
     def create(self, owner: str, browser_locale: str) -> Conversation:
         draft = Conversation(conversation_id=new_id("chat"), owner_user_id=owner, locale=locale(browser_locale),
@@ -138,9 +139,13 @@ class ConversationService:
                     draft.status = "uploading"
                 else:
                     draft.status = "import_pending"
+                    if self.home_downloads and self.home_downloads.enabled:
+                        self.home_downloads.enqueue(tx, draft)
                 tx.put(draft, key)
             elif draft.status == "import_failed":
                 draft.status, draft.error = "import_pending", ""
+                if self.home_downloads and self.home_downloads.enabled:
+                    self.home_downloads.enqueue(tx, draft)
                 tx.put(draft, key)
         return self.get(key, owner)
 
@@ -165,6 +170,8 @@ class ConversationService:
                 result = self.inspector.inspect(media)
                 quote = quote_job(self.settings.pricing, result.duration_ms, result.media_type)
                 frozen_key = f"users/{owner}/jobs/{session.reserved_job_id}/{new_id('prepared')}{Path(session.original_filename).suffix}"
+                if self.settings.profile == 'azure-jp-t4':
+                    frozen_key = 'inputs/' + frozen_key
                 self.storage.upload(media, frozen_key)
             with self.store.transaction() as tx:
                 current = self.owned(tx, key, owner)
@@ -229,6 +236,12 @@ class ConversationService:
         result = asdict(draft)
         result.pop("owner_user_id")
         result.pop("lease_until")
+        result.pop("download_task_id")
+        if draft.download_task_id and self.home_downloads:
+            task = self.home_downloads.get(draft.download_task_id)
+            if task:
+                result["download"] = {"status": task.status, "unavailable_retries": task.unavailable_retries,
+                                      "max_retries": 10, "retry_interval_seconds": 10}
         result.update(ready=draft.ready, step=self.step(draft))
         if draft.upload_id:
             session = self.jobs.get_upload(draft.upload_id, draft.owner_user_id)
@@ -278,6 +291,14 @@ class ConversationService:
     def import_one(self):
         """CPU source work. Claim a durable lease; no GPU calls or in-memory job queue."""
         now = now_ms()
+        remote = self.home_downloads if self.home_downloads and self.home_downloads.enabled else None
+        if remote:
+            with self.store.transaction() as tx:
+                for waiting in tx.query(Conversation, where_in=("status", ["import_pending", "importing"])):
+                    if not waiting.download_task_id and waiting.lease_until <= now:
+                        remote.enqueue(tx, waiting)
+                        tx.put(waiting, waiting.conversation_id)
+            remote.tick()
         with self.store.transaction() as tx:
             interrupted = tx.query(Conversation, where=("status", "==", "inspecting"))
         for item in interrupted:
@@ -286,6 +307,10 @@ class ConversationService:
                 return
         with self.store.transaction() as tx:
             candidates = tx.query(Conversation, where_in=("status", ["import_pending", "importing"]))
+            if remote:
+                from ..domain.downloads import DownloadTask
+                ready = {t.task_id for t in tx.query(DownloadTask, where=("status", "==", "ready"))}
+                candidates = [d for d in candidates if d.download_task_id in ready]
             draft = next((d for d in candidates if d.lease_until <= now), None)
             if draft is None:
                 return
@@ -297,7 +322,8 @@ class ConversationService:
             with TemporaryDirectory(prefix="vt-youtube-") as directory:
                 # Retrying a completed upload only resolves its existing job.
                 if not draft.upload_id:
-                    video = self.importer.download(draft.youtube_url, Path(directory), self.settings.max_upload_bytes)
+                    video = remote.consume(draft.download_task_id, Path(directory)) if remote else self.importer.download(
+                        draft.youtube_url, Path(directory), self.settings.max_upload_bytes)
                     upload = self.jobs.prepare_upload(owner, filename=video.name,
                         size_bytes=video.stat().st_size, target_language=draft.target_language)
                     with self.store.transaction() as tx:
@@ -310,7 +336,8 @@ class ConversationService:
                 else:
                     upload = self.jobs.get_upload(draft.upload_id, owner)
                     if not self.storage.exists(upload.object_key, expected_size=upload.declared_size_bytes):
-                        video = self.importer.download(draft.youtube_url, Path(directory), self.settings.max_upload_bytes)
+                        video = remote.consume(draft.download_task_id, Path(directory)) if remote else self.importer.download(
+                            draft.youtube_url, Path(directory), self.settings.max_upload_bytes)
                         # A source can change between attempts; retain the reservation, update its size.
                         with self.store.transaction() as tx:
                             session = tx.get(UploadSession, upload.upload_id)
@@ -318,6 +345,11 @@ class ConversationService:
                             tx.put(session, session.upload_id)
                         self.storage.upload(video, upload.object_key)
                 self.finish_preparation(key, owner)
+            if remote:
+                # Cleanup failure must not turn a valid prepared quote into a failed import.
+                import contextlib
+                with contextlib.suppress(Exception):
+                    remote.discard_result(draft.download_task_id)
         except Exception:
             with self.store.transaction() as tx:
                 current = self.owned(tx, key, owner)

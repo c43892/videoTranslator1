@@ -1,4 +1,4 @@
-import {accountCopy} from './account-copy.js?v=20260923-bonus';
+import {accountCopy} from './account-copy.js?v=20260923-stripe-env';
 import {historyCopy} from './history-copy.js';
 export const copy = {
 en: {
@@ -67,4 +67,27 @@ for (const [locale, values] of Object.entries({
  pt: ['O que quer traduzir?', 'Adicione um link do YouTube, um vídeo ou um ficheiro de áudio.', 'Problemas ao iniciar sessão?'],
 })) {
  for (const [index, key] of ['simpleTitle', 'simpleSubtitle', 'signInHelp'].entries()) copy[locale][key] = values[index];
+}
+// Download waiting is distinct from translation queueing and never starts a GPU.
+Object.assign(copy.en, {
+ downloadQueued: 'Waiting for an available download slot.',
+ downloadReconnecting: 'Download service unavailable. Retrying every 10 seconds',
+ downloadUnavailable: 'The download service is unavailable after 10 retries. You can retry the download.',
+});
+Object.assign(copy.zh, {
+ downloadQueued: '正在排队等待可用的下载位置。',
+ downloadReconnecting: '下载服务暂时不可用，正在每隔 10 秒重试',
+ downloadUnavailable: '重试 10 次后下载服务仍不可用。你可以点击“重新下载”再次尝试。',
+});
+for (const [locale, values] of Object.entries({
+ en: ['Your translation is queued and will start automatically. No retry is needed.', 'Translation is temporarily paused. Your task is saved and will continue automatically when service resumes.'],
+ zh: ['译制任务正在排队，资源可用后会自动开始，无需重试。', '译制服务暂时暂停，任务已保存，服务恢复后会自动继续。'],
+ fr: ['Votre traduction est en file et démarrera automatiquement, sans nouvelle tentative.', 'La traduction est temporairement suspendue. Votre tâche reprendra automatiquement au rétablissement du service.'],
+ es: ['Tu traducción está en cola y comenzará automáticamente, sin reintentar.', 'La traducción está pausada temporalmente. Tu tarea continuará automáticamente cuando se restablezca el servicio.'],
+ de: ['Die Übersetzung wartet in der Warteschlange und startet automatisch, ohne erneuten Versuch.', 'Die Übersetzung ist vorübergehend pausiert. Dein Auftrag wird automatisch fortgesetzt, sobald der Dienst wieder verfügbar ist.'],
+ ja: ['翻訳は待機中です。利用可能になり次第、自動で開始します。再試行は不要です。', '翻訳サービスは一時停止中です。タスクは保存され、再開後に自動で続行します。'],
+ ko: ['번역 작업이 대기 중이며 자동으로 시작됩니다. 다시 시도할 필요가 없습니다.', '번역 서비스가 일시 중지되었습니다. 작업은 저장되었으며 서비스가 재개되면 자동으로 계속됩니다.'],
+ pt: ['A tradução está na fila e começará automaticamente, sem tentar novamente.', 'A tradução está temporariamente suspensa. A tarefa continuará automaticamente quando o serviço voltar.'],
+})) {
+ copy[locale].awaiting_capacity = values[0]; copy[locale].translationPaused = values[1];
 }

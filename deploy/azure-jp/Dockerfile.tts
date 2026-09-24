@@ -1,0 +1,20 @@
+ARG BASE_IMAGE=videotranslator-indextts2:azure-baseline-20260923
+FROM ${BASE_IMAGE} AS dependencies
+RUN find /opt/index-tts -type d -name __pycache__ -prune -exec rm -rf '{}' + \
+    && rm -rf /opt/index-tts/.git
+FROM python:3.10-slim-bookworm
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg libsndfile1 libgomp1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --uid 10001 --create-home app && mkdir /data /models && chmod 1777 /data /models
+COPY --from=dependencies /opt/index-tts /opt/index-tts
+COPY engine/services/tts /opt/tts
+COPY deploy/azure-jp/patch-tts-cache.py /tmp/patch-tts-cache.py
+RUN python /tmp/patch-tts-cache.py && rm /tmp/patch-tts-cache.py
+ENV PYTHONPATH=/opt/index-tts PATH=/opt/index-tts/.venv/bin:$PATH \
+    PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 HOME=/models NUMBA_CACHE_DIR=/tmp/numba \
+    MPLCONFIGDIR=/tmp/matplotlib XDG_CACHE_HOME=/tmp/cache \
+    MODEL_DIR=/models/checkpoints HF_HOME=/models/huggingface HF_HUB_CACHE=/models/huggingface/hub \
+    HF_HUB_DISABLE_XET=1 STORAGE_ROOT=/data
+USER 10001
+WORKDIR /opt/tts
+CMD ["python", "/opt/tts/server.py"]

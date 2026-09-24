@@ -1,0 +1,6 @@
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+USER root
+COPY deploy/azure-jp/pin-tts-models.py /tmp/pin-tts-models.py
+RUN python /tmp/pin-tts-models.py && rm /tmp/pin-tts-models.py
+USER 10001

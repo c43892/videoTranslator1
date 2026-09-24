@@ -1,0 +1,9 @@
+# Use only during an attended, bounded validation. Base configuration stays closed.
+services:
+  web:
+    environment:
+      GPU_STARTS_ENABLED: 'true'
+  engine-control:
+    environment:
+      CLOUD_ACCEPT_JOBS: 'true'
+      CLOUD_VALIDATION_MAX_JOBS: '3'

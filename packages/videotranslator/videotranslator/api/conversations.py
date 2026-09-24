@@ -38,6 +38,9 @@ class FollowRetry(BaseModel):
 
 def install_conversation_routes(app, container, identity_dependency, http_error):
     service = container.conversations
+    if service.home_downloads:
+        from .downloads import install_download_routes
+        install_download_routes(app, service.home_downloads)
     local = container.settings.profile in {"test", "local-ui", "local-full"}
 
     def invoke(fn, *args, **kwargs):
@@ -157,16 +160,23 @@ def install_conversation_routes(app, container, identity_dependency, http_error)
 
     @app.on_event("startup")
     async def start_importer():
+        async def heartbeat_monitor():
+            while True:
+                if service.home_downloads and service.home_downloads.enabled:
+                    with contextlib.suppress(Exception):
+                        await asyncio.to_thread(service.home_downloads.tick)
+                await asyncio.sleep(1)
         async def loop():
             while True:
                 with contextlib.suppress(Exception):
                     await asyncio.to_thread(service.import_one)
                 await asyncio.sleep(2)
         app.state.import_task = asyncio.create_task(loop())
+        app.state.download_monitor_task = asyncio.create_task(heartbeat_monitor())
 
     @app.on_event("shutdown")
     async def stop_tasks():
-        for name in ("import_task", "processor_task"):
+        for name in ("import_task", "processor_task", "download_monitor_task"):
             task = getattr(app.state, name, None)
             if task:
                 task.cancel()

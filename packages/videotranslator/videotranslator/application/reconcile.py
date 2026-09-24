@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from ..config import CostPolicy
 from ..docstore import Store
-from ..domain.enums import ErrorCode, JobStatus, RefundStatus, check_transition
+from ..domain.enums import DomainError, ErrorCode, JobStatus, RefundStatus, check_transition
 from ..domain.models import CapacityCounter, Job, now_ms
 from ..ports import JobBackend, MediaInspectionBackend, ObjectStorage
 from .uow import CompleteInspectionCommand, JobFundingUnitOfWork
@@ -61,6 +61,16 @@ class JobReconciler:
             elif job.backend_job_id and job.status != JobStatus.INSPECTING:
                 synced += self._sync_execution(job, now)
             synced += self._enforce_deadline(job, now)
+        with self._store.transaction() as tx:
+            waiting = tx.query(Job, where=("status", "==", JobStatus.AWAITING_CAPACITY), order_by="created_at")
+        for job in waiting:
+            if job.capacity_next_check_at <= now:
+                try:
+                    synced += self._funding.resume_waiting(job.job_id, now=now)
+                except DomainError:
+                    # One suspended account or concurrent cancellation must not
+                    # prevent other users' confirmed tasks from progressing.
+                    continue
         return synced
 
     # ------------------------------------------------------------------

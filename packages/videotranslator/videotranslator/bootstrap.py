@@ -12,6 +12,7 @@ import os
 from .adapters.conversation import DeepSeekConversationInterpreter, GuidedInterpreter, youtube_url
 from .adapters.youtube import YtDlpVideoImporter
 from .application.conversations import ConversationService
+from .application.downloads import HomeDownloads
 
 from .adapters.auth import FirebaseEmulatorIdentityVerifier
 from .adapters.fake import (
@@ -88,6 +89,13 @@ def build_container(settings: Settings | None = None) -> Container:
             job_backend = UnavailableJobBackend()
             inspection_backend = FakeMediaInspectionBackend()
         gateways = {"stripe": FakePaymentGateway("stripe"), "paypal": FakePaymentGateway("paypal")}
+    elif profile == "azure-jp-t4":
+        from .adapters.private_engine import PrivateEngineBackend
+        identity = None
+        storage = _azure_storage(settings)
+        job_backend = PrivateEngineBackend.from_env(storage)
+        inspection_backend = LocalCpuInspectionBackend(settings.local_queue_db)
+        gateways = {}
     elif profile.startswith("azure"):
         identity = None  # Initialized below according to the explicit auth mode.
         storage = _azure_storage(settings)
@@ -106,6 +114,9 @@ def build_container(settings: Settings | None = None) -> Container:
         elif settings.auth_mode != "demo" or profile.startswith("azure"):
             raise ValueError("AUTH_MODE must be firebase (demo is local only)")
         gateways = _live_gateways(settings.payment_mode) if settings.auth_mode == "firebase" and settings.payment_mode in {"sandbox", "live"} else {}
+        if 'stripe' in gateways:
+            from .payment_environment import bind_store
+            bind_store(store, settings.payment_mode)
 
     pricing = settings.pricing
     funding = JobFundingUnitOfWork(
@@ -155,7 +166,8 @@ def build_container(settings: Settings | None = None) -> Container:
                 os.environ.get("CHAT_MODEL", "deepseek-chat"),
                 os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"))
             if os.environ.get("DEEPSEEK_API_KEY") and profile != "test" else GuidedInterpreter(),
-            YtDlpVideoImporter(), youtube_url, inspector, funding),
+            YtDlpVideoImporter(), youtube_url, inspector, funding,
+            home_downloads=HomeDownloads(store, storage, settings)),
     )
 
 
@@ -183,13 +195,11 @@ def _live_gateways(mode="sandbox"):  # pragma: no cover - external credentials
     from .adapters.payments import PayPalPaymentGateway, StripePaymentGateway
 
     gateways = {}
-    if os.environ.get("STRIPE_SECRET_KEY") and os.environ.get("STRIPE_WEBHOOK_SECRET"):
-        if mode == "sandbox" and not os.environ["STRIPE_SECRET_KEY"].startswith(("sk_test_", "rk_test_")):
-            raise ValueError("PAYMENT_MODE=sandbox requires a Stripe test key")
-        if mode == "live" and not os.environ["STRIPE_SECRET_KEY"].startswith(("sk_live_", "rk_live_")):
-            raise ValueError("PAYMENT_MODE=live requires a Stripe live key")
+    from .payment_environment import profiled, select_environment
+    if profiled(os.environ) or (os.environ.get("STRIPE_SECRET_KEY") and os.environ.get("STRIPE_WEBHOOK_SECRET")):
+        payment = select_environment(os.environ, mode)
         gateways["stripe"] = StripePaymentGateway(
-            os.environ["STRIPE_SECRET_KEY"], os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+            payment.key, payment.webhook_secret
         )
     if os.environ.get("PAYPAL_CLIENT_ID") and os.environ.get("PAYPAL_CLIENT_SECRET") and os.environ.get("PAYPAL_WEBHOOK_ID"):
         gateways["paypal"] = PayPalPaymentGateway(

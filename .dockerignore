@@ -1,4 +1,8 @@
 .git
+.env
+.env.*
+secrets/
+*_credential.txt
 .codegraph
 index-tts
 **/__pycache__

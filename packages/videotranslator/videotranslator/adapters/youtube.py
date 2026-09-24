@@ -1,4 +1,5 @@
 """Bounded yt-dlp subprocess: only canonical single-video YouTube URLs."""
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -15,6 +16,8 @@ class YtDlpVideoImporter:
             "--match-filters", "!is_live & duration <= 14400",
             "-f", "bv*[height<=1080]+ba/b[height<=1080]", "--merge-output-format", "mp4",
             "-o", str(destination / "video.%(ext)s"), canonical]
+        if os.environ.get('YTDLP_JS_RUNTIME'):
+            command[3:3] = ['--js-runtimes', os.environ['YTDLP_JS_RUNTIME']]
         try:
             subprocess.run(command, check=True, timeout=900, capture_output=True)
         except (subprocess.SubprocessError, OSError) as exc:

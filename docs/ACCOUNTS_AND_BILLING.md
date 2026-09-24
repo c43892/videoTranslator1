@@ -207,6 +207,11 @@ This does not change Stripe sandbox/live mode or start translation automatically
 
 ## Local live Stripe setup (2026-09-23)
 
+The paired-environment workflow now supersedes manual key/file swapping:
+use `stripe.ps1 sandbox`, `stripe.ps1 live` or `stripe.ps1 status` from the
+repository root. See [STRIPE_ENVIRONMENTS.md](STRIPE_ENVIRONMENTS.md) for local
+commands, isolated storage, rollback behavior and cloud secret configuration.
+
 The daybreak live merchant uses a dedicated restricted key named
 `VideoTranslator live backend`: Checkout Sessions write, Payment Intents read,
 Events read, and Stripe CLI Debugging Tools write. No payout, refund, account

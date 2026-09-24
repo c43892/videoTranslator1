@@ -133,13 +133,25 @@ class JobFundingUnitOfWork:
         if user.status == "suspended":
             raise DomainError("account suspended", code=ErrorCode.FORBIDDEN)
 
+        # Admission must reserve the real worst case, including the first attempt.
+        # Previously the budget check saw zero before _reserve_and_charge filled this.
+        job.max_runtime_seconds = job.max_runtime_seconds or max_runtime_seconds(job.duration_ms)
+
         if user.point_balance_units < job.quoted_point_units:
-            self._move(tx, job, JobStatus.AWAITING_CREDITS)
+            job.capacity_wait_reason, job.capacity_next_check_at = "", 0
+            if job.status != JobStatus.AWAITING_CREDITS:
+                self._move(tx, job, JobStatus.AWAITING_CREDITS)
+            else:
+                tx.put(job, job.job_id)
             return ChargeResult(job, "awaiting_credits")
 
         reason = self._admission_block_reason(tx, job, now)
         if reason is not None:
-            self._move(tx, job, JobStatus.AWAITING_CAPACITY)
+            job.capacity_wait_reason, job.capacity_next_check_at = reason, now + 10_000
+            if job.status != JobStatus.AWAITING_CAPACITY:
+                self._move(tx, job, JobStatus.AWAITING_CAPACITY)
+            else:
+                tx.put(job, job.job_id)
             return ChargeResult(job, "awaiting_capacity", reason)
 
         self._reserve_and_charge(tx, job, user, now)
@@ -154,8 +166,12 @@ class JobFundingUnitOfWork:
             where=("owner_user_id", "==", job.owner_user_id),
             where_in=("status", list(ACTIVE_CHARGED_STATUSES)),
         )
-        if any(j.job_id != job.job_id for j in active):
+        if sum(j.job_id != job.job_id for j in active) >= self._max_active:
             return "user_active_job_exists"
+        if cost.max_concurrent_jobs:
+            global_active = tx.query(Job, where_in=("status", list(ACTIVE_CHARGED_STATUSES)))
+            if sum(j.job_id != job.job_id for j in global_active) >= cost.max_concurrent_jobs:
+                return "workers_busy"
         counter = tx.get(CapacityCounter, "global")
         if counter is not None and counter.reserved_gpu_seconds >= cost.capacity_block_gpu_seconds:
             return "backlog_exceeded"
@@ -235,6 +251,7 @@ class JobFundingUnitOfWork:
         tx.put(user, user.user_id)
 
         job.charged_ledger_entry_id = entry.ledger_entry_id
+        job.capacity_wait_reason, job.capacity_next_check_at = "", 0
         job.execution_deadline_at = now + (cost.provisioning_allowance_s + job.max_runtime_seconds) * 1000
         job.capacity_last_tick_at = now
         job.queued_at = now
@@ -288,7 +305,7 @@ class JobFundingUnitOfWork:
         with self._store.transaction() as tx:
             job = tx.get(Job, command.job_id)
             if job is not None and job.status not in (JobStatus.INSPECTING, JobStatus.UPLOADED):
-                outcome = "queued" if job.status == JobStatus.QUEUED else job.status.value
+                outcome = str(job.status)
                 return ChargeResult(job, outcome)
             if job is None:
                 job = Job(
@@ -327,13 +344,25 @@ class JobFundingUnitOfWork:
             if job.status in ACTIVE_CHARGED_STATUSES or job.status in (
                 JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED, JobStatus.EXPIRED
             ):
-                return ChargeResult(job, job.status.value)  # idempotent replay
+                return ChargeResult(job, str(job.status))  # SQLite restores string enum values.
             if job.status == JobStatus.INSPECTING:
                 raise InvalidTransition("job is still inspecting")
             user = tx.get(User, job.owner_user_id)
             if user is not None and user.point_balance_units < job.quoted_point_units:
                 raise InsufficientCredits("balance below quote")
             return self._charge_tx(tx, job, now)
+
+    def resume_waiting(self, job_id: str, *, now: int) -> bool:
+        """Recheck an already confirmed queue entry, with no duplicate charge.
+
+        Status and timer are read again in the same transaction as admission:
+        cancellation, another scheduler, and a manual start cannot race the debit.
+        """
+        with self._store.transaction() as tx:
+            job = tx.get(Job, job_id)
+            if not job or job.status != JobStatus.AWAITING_CAPACITY or job.capacity_next_check_at > now:
+                return False
+            return self._charge_tx(tx, job, now).outcome == "queued"
 
     def cancel(self, job_id: str, *, now: int = 0) -> CancelResultView:
         """§8.4: queued cancel refunds in the same tx; later states become cancelling."""
@@ -344,6 +373,12 @@ class JobFundingUnitOfWork:
                 raise NotFound(f"job {job_id}")
             if job.status == JobStatus.CANCELLED:
                 return CancelResultView(job, "already_cancelled")
+            if job.status in (JobStatus.AWAITING_CAPACITY, JobStatus.AWAITING_CREDITS):
+                self._move(tx, job, JobStatus.CANCELLED)
+                job.capacity_wait_reason, job.capacity_next_check_at = "", 0
+                job.completed_at = now
+                tx.put(job, job_id)
+                return CancelResultView(job, "cancelled")
             if job.status == JobStatus.QUEUED:
                 self._move(tx, job, JobStatus.CANCELLED)
                 for outbox in tx.query(JobOutbox, where=("job_id", "==", job_id)):

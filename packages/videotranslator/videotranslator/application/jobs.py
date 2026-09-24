@@ -94,6 +94,8 @@ class JobService:
         job_id = new_id("job")
         suffix = Path(filename).suffix.lower() or ".bin"
         object_key = f"users/{user_id}/jobs/{job_id}/input{suffix}"
+        if self._settings.profile == 'azure-jp-t4':
+            object_key = 'inputs/' + object_key
         session = UploadSession(
             upload_id=upload_id,
             owner_user_id=user_id,
@@ -332,7 +334,7 @@ class JobService:
         now = now or now_ms()
         with self._store.transaction() as tx:
             job = self._owned_job(tx, job_id, user_id)
-            if job.status in ACTIVE_CHARGED_STATUSES:
+            if job.status in ACTIVE_CHARGED_STATUSES or job.status == JobStatus.AWAITING_CAPACITY:
                 raise InvalidTransition("cannot delete assets of an active job")
             references = tx.query(Job, where=("input_object_key", "==", job.input_object_key))
             live_refs = [j for j in references if j.job_id != job_id and j.assets_deleted_at is None]

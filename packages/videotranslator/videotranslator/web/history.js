@@ -1,11 +1,16 @@
 export function statusGroup(status, stage = '') {
   if (status === 'provisioning' && stage === 'queued') return 'queued';
-  if (status === 'queued') return 'queued';
+  if (['queued', 'awaiting_capacity'].includes(status)) return 'queued';
   if (['inspecting','submitting','provisioning','running','cancelling'].includes(status)) return 'running';
   if (['succeeded','failed','cancelled','expired'].includes(status)) return status;
   return 'waiting';
 }
 const statusKeys = {queued:'statusQueued',running:'statusRunning',failed:'statusFailed',succeeded:'statusSucceeded',waiting:'statusWaiting',cancelled:'statusCancelled',expired:'statusExpired'};
+
+export function queueMessageKey(job) {
+  return ['gpu_starts_disabled', 'cost_budget_exceeded'].includes(job?.capacity_wait_reason)
+    ? 'translationPaused' : 'awaiting_capacity';
+}
 
 export function createHistory({api, t, money, download, preview, refreshBalance}) {
   const $ = id => document.getElementById(id);
@@ -71,7 +76,7 @@ export function createHistory({api, t, money, download, preview, refreshBalance}
     }
     if (job.status === 'failed') detail.append(el('p','notice',t('failed')));
     for (const warning of job.warnings || []) detail.append(el('p','notice',warning));
-    if (['awaiting_credits','awaiting_capacity'].includes(job.status)) detail.append(el('p','notice',t(job.status)));
+    if (['awaiting_credits','awaiting_capacity'].includes(job.status)) detail.append(el('p','notice',t(job.status === 'awaiting_capacity' ? queueMessageKey(job) : job.status)));
     if (job.retry_of_job_id) line('originalTask',job.retry_of_job_id);
     if (job.status === 'succeeded') {
       if (job.assets_deleted_at || !job.output_object_key || (job.output_expires_at && job.output_expires_at <= Date.now())) detail.append(el('p','notice',t('resultUnavailable')));

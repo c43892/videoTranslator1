@@ -1,0 +1,12 @@
+FROM python:3.12-slim-bookworm
+COPY --from=node:22-bookworm-slim /usr/local/bin/node /usr/local/bin/node
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
+    && rm -rf /var/lib/apt/lists/* && useradd --uid 10001 --create-home app \
+    && mkdir /data && chmod 1777 /data
+WORKDIR /app
+COPY packages/videotranslator ./package
+RUN pip install --no-cache-dir ./package azure-identity azure-storage-blob 'yt-dlp[default]==2026.8.19'
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 APP_PROFILE=azure-jp-t4 PORT=8000 YTDLP_JS_RUNTIME=node
+USER 10001
+EXPOSE 8000
+CMD ["python", "-m", "videotranslator.api"]

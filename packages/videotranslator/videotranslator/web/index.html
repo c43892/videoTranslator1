@@ -4,8 +4,8 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f5f5f0">
   <title>VideoTranslator · Studio</title>
-  <link rel="stylesheet" href="/assets/style.css?v=20260923-bonus">
-  <script type="module" src="/assets/app.js?v=20260923-bonus"></script>
+  <link rel="stylesheet" href="/assets/style.css?v=20260923-stripe-env">
+  <script type="module" src="/assets/app.js?v=20260924-cloud-preview"></script>
 </head>
 <body>
   <aside class="sidebar">
@@ -16,6 +16,7 @@
     <header>
       <div class="header-context"><span id="page-label" class="header-label" data-i18n="assistant">Translation assistant</span><button id="restart" class="text-button" data-i18n="newChat" hidden>＋ New conversation</button></div>
       <div class="header-actions">
+        <span id="payment-mode-badge" class="payment-mode-badge" data-i18n="paymentSandboxShort" hidden>Test payments</span>
         <div class="wallet"><span id="balance-label" data-i18n="balance">Balance</span><strong id="balance-value" aria-live="polite">—</strong><button id="topup" class="chip" data-i18n="topup" disabled>Top up</button></div>
         <select id="locale" aria-label="Conversation language"><option value="auto">Auto</option><option value="zh">中文</option><option value="en">English</option></select>
         <button id="signin" class="text-button" data-i18n="signIn">Sign in</button>

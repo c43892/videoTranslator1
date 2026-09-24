@@ -21,6 +21,7 @@ from .domain.models import InspectionSpec
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("spec")
+    parser.add_argument("--progress-file")
     args = parser.parse_args(argv)
 
     spec_path = Path(args.spec)
@@ -28,18 +29,25 @@ def main(argv: list[str] | None = None) -> int:
     spec = InspectionSpec.from_json_dict(json.loads(spec_path.read_text()))
 
     try:
-        storage = LocalObjectStorage(os.environ.get("LOCAL_STORAGE_DIR", "./vt-data/objects"))
+        if os.environ.get('APP_PROFILE') == 'azure-jp-t4':
+            from .adapters.azure_blob import AzureBlobStorage
+            storage = AzureBlobStorage.from_env()
+        else:
+            storage = LocalObjectStorage(os.environ.get("LOCAL_STORAGE_DIR", "./vt-data/objects"))
         key = spec.input_uri.removeprefix("obj://")
         local = storage.local_path(key) or storage.download(key, spec_path.parent / "input")
         result = FFmpegMediaInspector().inspect(local)
     except DomainError as exc:
         result_path.write_text(json.dumps({"ok": False, "error": f"{exc.code.value}: {exc}"}))
+        (spec_path.parent / 'result.json').write_text(json.dumps({'ok': False, 'error': str(exc)[:300]}))
         return 1
     except Exception as exc:
-        result_path.write_text(json.dumps({"ok": False, "error": str(exc)[:300]}))
+        result_path.write_text(json.dumps({"ok": False, "error": "Media inspection failed"}))
+        (spec_path.parent / 'result.json').write_text(json.dumps({'ok': False, 'error': 'Media inspection failed'}))
         return 1
 
     result_path.write_text(json.dumps(result.to_json_dict()))
+    (spec_path.parent / 'result.json').write_text(json.dumps({'ok': True}))
     return 0
 
 

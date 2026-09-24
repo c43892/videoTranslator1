@@ -1,0 +1,69 @@
+name: videotranslator-cloud
+services:
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ['80:80', '443:443']
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST:?Set the public DNS hostname}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy-data:/data
+      - ./caddy-config:/config
+    depends_on: [web]
+  web:
+    image: ${CONTROL_IMAGE:?Set an immutable control image digest}
+    restart: unless-stopped
+    env_file: ./studio.env
+    environment:
+      APP_PROFILE: azure-jp-t4
+      PAYMENT_MODE: sandbox
+      ENGINE_CONTROL_URL: http://engine-control:8080
+      PAYMENT_SANDBOX_STORE_PATH: /data/store-stripe-sandbox.db
+      PAYMENT_SANDBOX_QUEUE_PATH: /data/inspection-queue-sandbox.db
+      PAYMENT_LIVE_STORE_PATH: /data/store-stripe-live.db
+      PAYMENT_LIVE_QUEUE_PATH: /data/inspection-queue-live.db
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/firebase-admin.json
+      TMPDIR: /data/tmp
+      GPU_STARTS_ENABLED: ${GPU_STARTS_ENABLED:-false}
+      MAX_ACTIVE_GPU_JOBS: '1'
+      GPU_HOURLY_RATE_MINOR: '168'
+      GPU_PRICE_VERSION: 'azure-japaneast-t4-8cpu-56gib-20260923-usd'
+      APP_GPU_DAILY_BUDGET_MINOR: '500'
+      APP_GPU_MONTHLY_BUDGET_MINOR: '1000'
+    volumes:
+      - ./studio-data:/data
+      - ./secrets/firebase-admin.json:/run/secrets/firebase-admin.json:ro
+    ports: ['127.0.0.1:8000:8000']
+    depends_on: [engine-control]
+  engine-control:
+    image: ${ENGINE_IMAGE:?Set an immutable engine image digest}
+    restart: unless-stopped
+    env_file: ./engine.env
+    environment:
+      STORAGE_ROOT: /data
+      CLOUD_ACCEPT_JOBS: ${CLOUD_ACCEPT_JOBS:-false}
+      CLOUD_VALIDATION_MAX_JOBS: ${CLOUD_VALIDATION_MAX_JOBS:-1}
+      CLOUD_JOB_MAX_SECONDS: '1800'
+    command: [uvicorn, videotranslator.cloud_control:app, --host, '0.0.0.0', --port, '8080']
+    volumes: ['/mnt/videotranslator-data:/data']
+    depends_on:
+      postgres:
+        condition: service_healthy
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file: ./postgres.env
+    command: [postgres, -c, ssl=on, -c, ssl_cert_file=/tls/server.crt, -c, ssl_key_file=/tls/server.key, -c, hba_file=/etc/postgresql/pg_hba.conf]
+    ports: ['${CPU_PRIVATE_IP:?Set VM private IP}:5432:5432']
+    volumes:
+      - ./postgres-data:/var/lib/postgresql/data
+      - ./secrets/postgres-tls:/tls:ro
+      - ./pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 5s
+      retries: 30
+# The cloud worker polls durable PostgreSQL state; Redis/Celery are retained only
+# by the existing local deployment, not required by this cloud-only entrypoint.

@@ -1,6 +1,6 @@
 // Firebase owns credentials and token refresh. Money always comes from the API.
 import {verifyReturnedPayment} from './payment-verification.js?v=20260923-payment';
-import {packageLabel} from './topup-packages.js?v=20260923-bonus';
+import {packageLabel} from './topup-packages.js?v=20260923-stripe-env';
 export async function createAccount({config, api, t, changed, report}) {
   const $ = id => document.getElementById(id);
   let user = null, sdk, auth, balance = null, lastRefresh = 0, generation = 0, paymentBusy = false;
@@ -8,7 +8,7 @@ export async function createAccount({config, api, t, changed, report}) {
   let paymentState = 'choose', paymentMessage = '', lastPaymentCheck = 0;
   let topupPackages = [];
   const money = cents => new Intl.NumberFormat(document.documentElement.lang, {style:'currency', currency:'USD', currencyDisplay:'code'}).format(cents / 100);
-  const sessionKey = () => `vt.checkout.${user?.uid}`;
+  const sessionKey = () => `vt.checkout.${config.payment_mode}.${user?.uid}`;
   function paymentView(state, message = '') {
     paymentState = state; paymentMessage = message;
     renderPayment();

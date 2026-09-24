@@ -52,6 +52,7 @@ class _SubprocessQueue:
         self._module = module
         self._max_concurrent = max_concurrent
         self._lock = threading.RLock()
+        self._processes: dict[int, subprocess.Popen] = {}
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
     # -- submit / status ----------------------------------------------------
@@ -93,7 +94,8 @@ class _SubprocessQueue:
                 return True
             if row["state"] == "running" and row["pid"]:
                 try:
-                    os.kill(row["pid"], signal.SIGTERM)
+                    if self._is_alive(row["pid"]):
+                        os.kill(row["pid"], signal.SIGTERM)
                 except OSError:
                     pass
                 self._finish(backend_job_id, "cancelled")
@@ -126,12 +128,16 @@ class _SubprocessQueue:
         spec_file = workdir / "spec.json"
         spec_file.write_text(row["spec_json"])
         progress_file = workdir / "progress.json"
+        for filename in ('result.json', 'inspection_result.json', 'progress.json'):
+            (workdir / filename).unlink(missing_ok=True)
         log = open(workdir / "worker.log", "ab")
         proc = subprocess.Popen(
             [sys.executable, "-m", self._module, str(spec_file), "--progress-file", str(progress_file)],
             stdout=log,
             stderr=subprocess.STDOUT,
         )
+        log.close()
+        self._processes[proc.pid] = proc
         self._db.execute(
             "UPDATE jobs SET state = 'running', pid = ?, started_at = ? WHERE id = ?",
             (proc.pid, time.time(), row["id"]),
@@ -162,6 +168,7 @@ class _SubprocessQueue:
             (state, error, json.dumps(result), time.time(), row["id"]),
         )
         self._db.commit()
+        self._processes.pop(pid, None)
 
     def _finish(self, job_id: str, state: str) -> None:
         self._db.execute(
@@ -169,10 +176,20 @@ class _SubprocessQueue:
         )
         self._db.commit()
 
-    @staticmethod
-    def _is_alive(pid: int | None) -> bool:
+    def _is_alive(self, pid: int | None) -> bool:
         if not pid:
             return False
+        proc = self._processes.get(pid)
+        if proc is not None:
+            return proc.poll() is None
+        if sys.platform == 'linux':
+            try:
+                # A zombie still has a PID; it must not hold the queue slot.
+                status = Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()[0]
+                command = Path(f'/proc/{pid}/cmdline').read_bytes().split(b'\x00')
+                return status != 'Z' and self._module.encode() in command
+            except (FileNotFoundError, ProcessLookupError):
+                return False
         try:
             os.kill(pid, 0)
         except OSError:

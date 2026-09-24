@@ -48,6 +48,13 @@ class Document:
 
 
 @dataclass
+class PaymentEnvironmentRecord(Document):
+    COLLECTION: ClassVar[str] = 'payment_environments'
+    environment_id: str = 'stripe'
+    mode: str = ''
+
+
+@dataclass
 class User(Document):
     COLLECTION: ClassVar[str] = "users"
 
@@ -126,6 +133,8 @@ class Job(Document):
     submit_idempotency_key: str | None = None
     error_code: str | None = None
     error_message: str | None = None
+    capacity_wait_reason: str = ""
+    capacity_next_check_at: int = 0
     refund_status: RefundStatus = RefundStatus.NOT_APPLICABLE
     balance_returned_cents: int = 0
     balance_returned_at: int | None = None

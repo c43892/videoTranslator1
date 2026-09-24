@@ -59,3 +59,6 @@ Object.assign(accountCopy.zh, {
  jobStatusReconnecting:'状态同步暂时中断，任务仍在后台运行，正在自动重连…',
  jobAuthRequired:'任务仍在后台运行，请重新登录以恢复查看进度。'
 });
+
+Object.assign(accountCopy.en, {paymentSandboxShort:'Test payments', payment_environment_changed:'The payment environment changed. Refresh this page before continuing.'});
+Object.assign(accountCopy.zh, {paymentSandboxShort:'测试支付', payment_environment_changed:'支付环境已切换，请刷新页面后继续。'});

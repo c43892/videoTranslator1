@@ -24,6 +24,7 @@ class Conversation(Document):
     upload_id: str = ""
     job_id: str = ""
     lease_until: int = 0
+    download_task_id: str = ""
     error: str = ""
     interpreter_mode: str = "guided"
     duration_ms: int = 0

@@ -1,0 +1,6 @@
+{
+  "server_url": "https://vidyi.cc",
+  "token": "REPLACE_WITH_A_PRIVATE_RANDOM_TOKEN_AT_LEAST_32_CHARACTERS",
+  "node_path": "",
+  "ffmpeg_path": ""
+}

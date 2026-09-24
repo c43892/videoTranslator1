@@ -1,6 +1,42 @@
 # Azure 日本东部 T4 按需 GPU 改造方案
 
-日期：2026-09-23。状态：实施方案草案，基于当前代码、镜像元数据和官方文档；尚未验证订阅配额、云端容量、端到端运行或实际费用。本次只编写文档。
+> 当前实际部署与验收结果见 [部署验收记录](AZURE_JAPAN_DEPLOYMENT_VALIDATION.md)。本文保留实施前方案；当前使用 PostgreSQL 持久队列，YouTube 匿名下载已发现 Azure 出口反爬限制。
+
+日期：2026-09-23。版本：v2，稳定版迁移实施基线。根据当前源码、本机运行容器、此前 Azure 验证记录及本次复核的官方文档修订。
+
+**实施补记（2026-09-23）**：用户已切换 Stripe sandbox 并授权实施和部署验证。实际实现与验证状态见 [Azure 部署说明](../deploy/azure-jp/README.md)。新增云端专用的持久 PostgreSQL 轮询 worker，复用全局执行锁，代替下文原拟的云端 Redis/Celery 调度；本地 Celery 不变。云端账本使用独立 sandbox 数据文件。以下表格中的 live 账本描述为方案审阅时的历史观察，不代表当前 Stripe 模式。正式数据切换尚未进行。
+
+## 0. 本轮审阅结论与现状
+
+保留“常驻 CPU VM + ACA 按需 T4 + Blob/Files”的总体设计。首期属于**中等风险的部署与边界适配**：算法复用程度高，但从同机 Docker 改为跨主机持久存储与自动启停，不是简单修改环境变量。先固定稳定版本，再逐项验证；不同时替换模型、重写账本或提高并发。
+
+### 0.1 需要修正的旧结论
+
+| 项目 | 当前证据与实施决定 |
+| --- | --- |
+| 转写 | 运行中 worker 的 `TRANSCRIPTION_PROVIDER=scribe`、`SCRIBE_MODEL=scribe_v2`；保留 ElevenLabs Scribe。Whisper 是可选分支，不再描述为当前默认。 |
+| 已稳定的处理规则 | 保留声音变化边界、每段原音参考、非对话声音与失败片段保留、强制时长匹配、可切换字幕。云迁移不重新定义这些规则。 |
+| 真实账本 | Studio 当前使用 `/data/store-stripe-live.db`，检查队列为 `/data/inspection-queue-live.db`；不是旧文档里的沙盒库。迁移前单独备份、恢复演练和对账；staging 使用独立数据与支付测试配置。 |
+| Azure 已完成项 | 资源记录已确认 Japan East T4 配额、微软测试镜像启动及随后 0 副本；Blob 容器与 Files 环境级连接已创建。见 [资源记录](AZURE_JAPAN_RESOURCES.md)。这是此前观察，不是本轮重新检查云端状态。 |
+| Azure 尚未验证项 | 项目双容器镜像、非 root 写权限、真实模型、CPU↔Files↔GPU 文件一致性、PostgreSQL scaler、异常恢复、完整任务与跨地区网络。测试镜像通过不能代替这些验收。 |
+| GPU 触发方式 | 现有测试应用用 HTTP scaler；业务 worker 需要持久任务驱动的自定义 scaler。不能仅替换镜像就沿用 HTTP 规则。 |
+| CPU 主机与预算 | CPU VM 尚未创建。US$20 是此前基础设施/验证总预算约束，不是已批准的常驻月费。既有 CAD20 告警不是硬封顶，且未覆盖托管基础设施资源组。 |
+| 旧云代码 | `azure*` profile 仍连接 Azure ML；`deploy/README.md` 对应旧单镜像/本地 Whisper 路径。新增精确匹配的 `azure-jp-t4` 组合，不能直接启用旧分支。 |
+
+### 0.2 待冻结的运行基线
+
+- 主仓库本轮检查 HEAD：`1f46c3bac5e4a39936ab54169ad9d278acf67253`。
+- 恢复的引擎基线：`3f196f861a0f929d54328478183379021796b4fc`，当前工作目录有已修改及未跟踪源码，不能仅引用这个提交复现稳定版。
+- 当前 engine 镜像本地 ID：`sha256:910d19842d434378545186aa37486f7e381abaf99d3e990c260beacff1b2e2ba`。
+- 当前 TTS 镜像本地 ID：`sha256:b314e92c3f08fc73c1e496cfbbc12371f6c6dabce89a729b9612b9c36568d0dc`。
+- 当前 Studio 镜像本地 ID：`sha256:dd7ea8c0a4d47a3219d067e26a7eb24f3ab4cce534fc18ee6c42bf810d9e2f25`。
+- 这些是本地镜像 ID，不是可在 Azure 直接拉取的注册表 manifest digest。实施第一项是保存源码/补丁清单、基础镜像来源、模型版本及测试样本；构建并推送后另记真正的拉取 digest。
+
+### 0.3 首期交付边界
+
+首期交付网页持续在线、完整任务按需启动 GPU、无任务归零、结果持续可下载以及可验证的数据恢复。保留整条引擎流水线在 GPU 副本生命周期内运行，Scribe/DeepSeek 等 API 等待仍占用该副本。只把目前已在 Studio 执行的导入、媒体检查、最终兼容性导出与发布放在常驻 CPU；不把引擎内部的所有 FFmpeg 操作一起搬走。
+
+本地 `local-full` 保留为回归及回退路径；云端首先使用独立测试账号、队列和账本。全部验收完成后才切换正式流量。
 
 ## 1. 已确定的目标与首期边界
 
@@ -11,7 +47,7 @@
 - 初期所有计算和存储放同一区域，面向大陆、其他东亚及北美分别做网络实测；不承诺所有网络下均可顺畅访问或下载 YouTube。
 - “持续在线”在首期指不随 GPU 关闭，不代表单台 CPU 主机具备故障双活能力。若需要高可用 SLA，需另做数据库和多副本改造。
 
-**首期以一个完整引擎任务为 GPU 占用单位，而非每一次 CUDA 运算。** 一个任务中的转写 API 等待、翻译 API 等待和引擎内 CPU 处理也会占用 GPU 副本时间。无任务并经过缩容冷却后归零。此取舍保留现有处理流程，第二阶段再根据实测拆分 GPU 阶段。
+**首期以一个完整引擎任务为 GPU 占用单位，而非每一次 CUDA 运算。** 一个任务中的 Scribe 转写 API 等待、DeepSeek 翻译 API 等待和引擎内 CPU 处理也会占用 GPU 副本时间。无任务并经过缩容冷却后归零。此取舍保留现有处理流程，后续优化阶段再根据实测拆分 GPU 阶段。
 
 ## 2. 代码核查结果及关键前置风险
 
@@ -25,7 +61,9 @@
 | Demucs 子任务字典只在内存中 | services/tts/demucs_service.py | 重启恢复不能仅依赖这个字典；要校验持久结果并安全重跑未完成阶段 |
 | Blob 适配器已有上传下载，但签名实现仍需修正 | adapters/azure_blob.py | 托管身份需获取 user delegation key 再签 SAS；下载改为流式 |
 | 旧 azure profile 实际指向 Azure ML 和旧 worker 入口 | bootstrap.py、adapters/azure_ml.py、deploy/README.md | 新增独立 profile，不把旧 Azure 代码当作当前引擎已上线 |
-| 当前源码转写走外部 OpenAI 接口 | backend/videotranslator/transcription.py、tasks.py 及 synthesis-limits.patch | 首期保留实际行为，不能把旧镜像的本地 Whisper 方案或旧文档当作现状 |
+| 当前运行配置使用外部 Scribe；保留可切换的 Whisper API 分支 | backend/videotranslator/scribe.py、tasks.py、scribe-events.patch、turn-boundaries.patch | 保留实际 provider、模型、声音边界与缓存版本，不切回旧本地 Whisper |
+| CPU inspection 子进程接口尚不匹配 | adapters/local_jobs.py:_spawn、inspection_worker.py:main | 启动器传入 --progress-file，而检查入口未接受；入口还写死 LocalObjectStorage。补齐真实子进程验收，不能只测同步检查路径 |
+| 冻结输入已有基础实现 | application/conversations.py:finish_preparation | 已有下载、检查、上传至新对象键的流程，优先复用；补远程对象流式下载、并发提交与完整性校验 |
 
 代码基线以 `vt-data/engine-source` 当前恢复的引擎源码，加 `deploy/Dockerfile.engine-patched`、`deploy/Dockerfile.tts-patched` 的补丁链为准。正式构建前记录源码提交、未提交补丁、模型版本和镜像 digest；不能直接改 ignored worktree 后就认为构建可复现。
 
@@ -33,9 +71,9 @@
 
 本机只读检查 `docker image inspect` 得到：
 
-- `videotranslator-app:studio`：1,569,210,524 bytes，约 1.46 GiB。
+- `videotranslator-app:studio`：1,872,065,870 bytes，约 1.74 GiB（本轮更新）。
 - `videotranslator-indextts2:studio`：14,356,984,301 bytes，约 13.37 GiB。
-- 两镜像 Size 简单相加约 14.83 GiB；它不是注册表压缩下载大小，也未扣除共享层。
+- 两镜像 Size 简单相加约 15.11 GiB；它不是注册表压缩下载大小，也未扣除共享层。
 
 ACA 通用容器文档列出 Consumption 每副本镜像总大小 8 GB 的限制，而 GPU 指南又讨论 5–15 GB GPU 镜像，文档适用范围存在需要确认之处。[容器限制](https://learn.microsoft.com/en-us/azure/container-apps/containers#limitations)、[GPU 镜像指南](https://learn.microsoft.com/en-us/azure/container-apps/functions-gpu-container-apps)。
 
@@ -58,6 +96,8 @@ ACA 通用容器文档列出 Consumption 每副本镜像总大小 8 GB 的限制
 ACA 支持同一 app 中多个紧耦合容器；它们共享网络和生命周期。GPU 文档规定只有第一个容器获得 GPU，因此顺序必须明确。TTS 与 worker 的 CPU/内存分配及平台限制需在阶段 0 验证。[多容器](https://learn.microsoft.com/en-us/azure/container-apps/containers#multiple-containers)、[GPU 约束](https://learn.microsoft.com/en-us/azure/container-apps/gpu-serverless-overview)。
 
 此方案使用长期存活、自动伸缩的 **Container App**，不是预先假定可用的 Container Apps GPU Job。worker 与 TTS 在同一个副本中启停，避免每个合成接口都改成跨服务的异步任务协议。
+
+CPU VM 放在同一 VNet 的独立子网，不能直接占用 ACA 委派子网。数据库/Redis 在 CPU 主机私网监听，并仅放行 ACA 所需来源；配置私有 DNS、TLS、服务凭据及备份。`TTS_URL` 在 GPU 副本内改为 `http://localhost:8001`，不能继续依赖 Compose 服务名 `tts`。8 vCPU / 56 GiB 是副本配置的总资源参考，不能给两个容器各分配一整份后假定可部署。
 
 ## 4. 端到端执行流程
 
@@ -105,6 +145,8 @@ ACA 官方提供自定义 KEDA 伸缩，KEDA 提供 PostgreSQL 查询触发器�
 
 GPU app 成本按实际 SKU 的 GPU、CPU、内存计费项合计；含启动、加载、API 等待、计算和缩容冷却，不能只统计 CUDA 活跃秒。副本为零后计算资源不计费，持久存储继续计费。[计费说明](https://learn.microsoft.com/en-us/azure/container-apps/billing)。
 
+serverless GPU 不适用普通 CPU app 的低价 idle 档；活着的 GPU 副本按 active 用量收费。实际费率及剩余验证预算须在收费测试前重新核对，本次没有取得最新账单，也没有将 US$20 自动扩展为常驻月预算。成本统计覆盖项目资源组和 `ME_...` 托管组，并将 Azure 的 CAD 成本与用户 USD 充值/积分账本分开，不能混用币种或将 Azure 花费解释为向用户收费。
+
 - 改造前核对 Japan East T4 的完整费率，替换 `CostPolicy` 的 local-dev 单价、runtime_ratio 和 provisioning_allowance；现有默认值不是 Azure 报价。
 - 接单前校验预算；已有 queued 任务的启动资格也必须检查 `gpu_starts_enabled` 和预算，不能只关闭新接单却让 scaler 启动旧积压任务。
 - 记录每个任务等待、启动、处理、发布时长及副本存活区间；共用冷却成本按明确口径分摊，对账以 Azure 实际账单为准。
@@ -115,18 +157,22 @@ GPU app 成本按实际 SKU 的 GPU、CPU、内存计费项合计；含启动、
 
 ### Blob：输入和最终结果
 
+- 当前适配器只接受一个容器，默认 `media`；已创建的是 `uploads` 与 `results`。首期约定云端新对象逻辑键使用 `inputs/...`、`outputs/...`，由存储适配层分别路由至这两个私有容器，上传冻结对象仍属于 inputs。保持 `obj://` 业务接口，统一修改云端键生成器并验证读、写、签名、删除的一致路由；不按扩展名猜用途，不修改本地旧对象键。历史媒体迁移用显式映射清单。
+
 - 沿用 ObjectStorage 抽象，完成 AzureBlobStorage；使用托管身份及 user delegation SAS，不把长期存储密钥交给浏览器。[SAS 官方实现](https://learn.microsoft.com/en-us/azure/storage/blobs/storage-blob-user-delegation-sas-create-python)。
 - 修复当前直接向签名函数传入 `credential` 的用法；从服务端获取并缓存有时限的 delegation key，再签发对象级 SAS。
 - 云端 `local_path()` 返回 None，所有输入检查、冻结、导入、导出路径都必须支持下载到受控临时目录；不只替换 storage 初始化。
 - 下载使用分块流，避免当前 readall 把 2 GiB 视频一次读入内存；上传设置正确 Content-Type、Content-Disposition 和校验信息。
 - 现有前端已有 Blob PUT 的 `x-ms-blob-type` 分支。首期必须补齐大文件分块上传/重试：建议大于 100 MiB 使用 Azure Block Blob，16 MiB 块、最多 3 并发；最后由服务端校验/提交块列表。
 - SAS 建议继续 15 分钟有效并可续签；只允许目标对象操作。SAS 不限制真实文件总大小，服务端必须校验提交后的实际大小与 2 GiB 上限。
-- 提交后由服务端冻结到浏览器没有写权限的新对象键，记录 ETag/版本和长度，避免尚未过期的上传 SAS 修改正在处理的输入。
+- 沿用现有服务端冻结到新对象键的语义，补充 ETag/版本、实际长度与校验；浏览器没有冻结对象写权限，避免尚未过期的上传 SAS 修改正在处理的输入。
 - 配置实际前端域名的 CORS 与所需方法/请求头；私有播放使用短期 GET SAS，验证 Range/206、拖动、过期续签及 WebVTT。
 - SAS 不写入持久 JobSpec，不记录在日志；存储对象键随任务固定，长任务不依赖早先签发的 URL。
 - 保留当前输出 7 天、等待输入 72 小时的默认语义；清理必须检查执行/重试中的引用。用户可见过期与后台生命周期删除一致，模型缓存不套用用户媒体规则。
 
 ### Azure Files：工作目录和模型
+
+- 当前 `data`、`models` 各 32 GiB 只是空共享的初始配额；不是已经验证足够存放真实模型、长媒体、尝试目录和缓存。阶段 0 测量模型落盘量和每任务峰值，预留余量后决定配额与清理规则。
 
 - /data 与 /models 分开；CPU engine-control、发布器和两个 GPU app 容器使用一致的 /data 路径。
 - 首期优先验证 Azure Files SMB 挂载和权限；只有性能实测需要时再评估其他协议及其成本。不要把数据库数据文件放共享文件系统上。
@@ -158,17 +204,17 @@ GPU app 成本按实际 SKU 的 GPU、CPU、内存计费项合计；含启动、
 
 ### 阶段 0：可行性验证，先于主体改造
 
-1. 记录实际源码、补丁和镜像基线；确认两个运行环境的依赖及 GPU 镜像体积。
-2. 查看/准备 Japan East ACA 环境的 Consumption T4 配额；不足则申请，配额批准不等于容量预留。旧 East US Azure ML 配额不适用。[配额说明](https://learn.microsoft.com/en-us/azure/container-apps/quotas)。
-3. 查目标配置完整费率；明确验证资源的预算、结束条件和清理列表，再运行收费测试。
-4. 验证一个 T4 副本中的两容器启动、GPU 只给主容器、localhost 通信、共享文件权限、镜像拉取限制和 CUDA/FP16。
-5. 用一条持久测试任务验证 PostgreSQL scaler 的 0→1→0，正在执行时队列可为空但副本不能因正常缩容被停掉。
+1. 冻结第 0.2 节基线，补齐可复现构建；api、worker、beat 使用相同引擎发布版本。当前 beat 仍引用 `videotranslator-app:local`，迁移时不继续混用来源不明的版本。
+2. 配额与微软镜像启动已有记录，后续收费测试前只复核可用性；不重复申请旧 East US Azure ML 配额。[配额说明](https://learn.microsoft.com/en-us/azure/container-apps/quotas)。
+3. 在本地完成镜像减重、非 root、固定模型/依赖与挂载写入验证。明确私有镜像仓库的实际拉取方案及费用，不默认公开包或购买 ACR Premium。
+4. 查完整费率和已发生费用；为一次短测试设定执行截止时间、人工停止方法、结束清单及剩余预算，再运行收费验证。
+5. 验证一个 T4 副本中的两容器启动、GPU 主容器、localhost 通信、真实模型加载、共享文件权限和 CUDA/FP16。先用受控的小任务；PostgreSQL 任务伸缩留到阶段 2，在其所需的接口/状态准备好之后验证。
 
-退出条件：配额/容量、镜像、双容器、共享存储和伸缩全部有实际验证记录。任一不通过，先调整该项，不开始完整数据迁移。
+退出条件：可复现镜像、本地非 root 回归、云端双容器与真实模型/共享存储有验证记录。当前只完成了平台基础验证，阶段 0 尚未全部完成。镜像大小或双容器不通过时先解决打包，不推进正式数据迁移。
 
 ### 阶段 1：本地可回归的接口与存储适配
 
-实现 PrivateEngineBackend、私有 engine-control、CPU 发布器和 Blob 适配；先在本地 Compose 中验证接口语义，维持当前 GPU 部署作为基线。补齐上传和媒体检查，不引入模型替换。
+按下面 B1、B2 两个独立交付包实现 PrivateEngineBackend、私有 engine-control、CPU 发布器和 Blob 适配；先在隔离的本地 Compose 中验证接口语义，维持当前 GPU 部署作为基线。修复 inspection 的命令参数与存储选择，测试同步检查和真实子进程检查两条路径。
 
 退出条件：同一真实短视频与纯音频在新接口下完成，输出、警告、计费与原路径一致；重复提交无重复任务。
 
@@ -176,11 +222,15 @@ GPU app 成本按实际 SKU 的 GPU、CPU、内存计费项合计；含启动、
 
 实现冷启动状态、伸缩视图、watchdog、attempt 校验、Demucs 恢复和非 root 镜像；验证本地重启/取消后，再验证日本 T4。GPU 从零启动可接受排队，前端明确显示阶段，不承诺固定秒数冷启动。
 
+特别修正当前 worker 在 TTS 不可达时写入 `waiting_configuration` 的行为：正常冷启动应保持可唤醒状态与启动期限，永久缺配置才阻断启动。CPU beat 的定期 `dispatch` 消息不能成为 scaler 的业务负载指标，避免无任务时持续拉起 GPU。停用测试用 HTTP scaler，改用已验收的 PostgreSQL 工作视图；无 ingress 时必须有可从 0 唤醒的自定义规则。[伸缩规则](https://learn.microsoft.com/en-us/azure/container-apps/scale-app)
+
 退出条件：长任务期间不因队列取空被缩容；失败不产生无限重启/扣费，任务重试不重复发布或退款。
 
 ### 阶段 3：小规模云端全流程
 
 部署 CPU 服务、私有网络、Blob/Files；导入测试账号及沙箱数据，不直接迁移正式余额。分别用文件上传与 YouTube 输入跑 MP4、MP3、字幕、播放和下载。
+
+CPU 常驻规格、磁盘/备份、域名和月费用在创建前形成单独报价；此前 US$20 验证预算不能作为该月费用的授权。浏览器至 Blob 的 CORS、Range、SAS 续签，以及 Firebase 登录和支付回调，必须从真实域名验证。日本区不能自动保证大陆访问 Firebase、上传下载或 YouTube 源站的成功率；先实测，问题单独处理，不因迁移直接更换认证系统。
 
 退出条件：下表验收通过；记录 T4 与本机 RTX 4060 Laptop 的同视频实测、冷/热启动、阶段耗时、内存和完整费用；确认大陆及北美真实网络体验。
 
@@ -189,6 +239,21 @@ GPU app 成本按实际 SKU 的 GPU、CPU、内存计费项合计；含启动、
 先备份并试恢复；暂停新任务，排空本地执行任务，对数据库/媒体做一致性迁移与清单校验；检查域名、登录授权域、支付回调和存储签名。切换时仅允许一个写入/接单入口。
 
 上线后做合成探测和错误监测。保留旧镜像与备份；如需回退，先停止新接单并同步切换期间产生的订单、余额和任务记录，再恢复旧入口。不能直接恢复旧数据库覆盖新支付数据，也不能让本地与云端同时消费同一生产队列。
+
+当前正式库 `store-stripe-live.db` 的备份使用数据库一致性备份方式，不直接复制仍在写入的 SQLite 单文件并忽略 WAL。检查队列的进程 PID/临时路径不作为可迁移运行状态；先排空，或从持久任务记录重建。PostgreSQL 使用一致性导出并与 `/data`、Blob 对象清单核对。正式支付 webhook 切换与事件去重一起验收，避免遗失或重复入账。
+
+### 可单独审查、验证和回退的交付包
+
+| 包 | 主要变更 | 完成证据 | 依赖 |
+| --- | --- | --- | --- |
+| B0 稳定基线与镜像 | 固定源码/补丁、模型与镜像；减重、非 root、挂载与双容器验证 | 从已记录来源重建；真实 GPU 模型启动、数据写入及可恢复；无永久常驻测试副本 | 先做本地；云测试受剩余预算约束 |
+| B1 引擎接口 | 抽取 bridge 为私有 control；新 JobBackend；CPU 发布器；保持 local-full | 隔离环境中短视频、音频、重复提交/取消、失败返还、结果完整性通过 | 稳定源码基线即可开始本地工作 |
+| B2 Blob 与媒体 | 修正 SAS、流式 I/O、对象路由、输入冻结、分块上传、inspection | 远程 local_path=None 可完成；子进程检查实际运行；播放/续签/跨用户访问测试通过 | B1 接口明确；可与镜像验证按独立变更提交 |
+| B3 自动启停与恢复 | readiness 分离、工作视图、只读 scaler、watchdog、执行令牌、截止时间 | 持久业务任务 0→1→0；长任务队列取空仍运行；取消/失联/旧执行者不重复发布或收费 | B0、B1；不得用 HTTP 测试镜像结果替代 |
+| B4 云端联调 | CPU Compose、独立子网、私有 DNS、镜像拉取、密钥/身份、预算与备份 | 真实输入到下载闭环；GPU=0 网页仍可用；地区网络与实际费用记录 | B0–B3，及 CPU 固定费用确认 |
+| B5 正式切换 | 排空、备份恢复、媒体映射、账本/支付对账、单写入口切换 | 已恢复演练；历史下载可用；余额一致；回退不会覆盖新交易 | B4 验收通过 |
+
+推荐实施起点：B0 的基线固定与本地构建，随后 B1 的接口抽取；每包保持可回归，失败就停在当前门槛修复。阶段可交错完成无费用的本地准备，但不能跳过云端可行性门槛直接迁移生产数据。
 
 ## 9. 验收清单
 
@@ -210,7 +275,7 @@ GPU app 成本按实际 SKU 的 GPU、CPU、内存计费项合计；含启动、
 
 ## 10. 尚未确认的事项及后续优化
 
-- 当前 Azure 登录/订阅、Japan East 配额、空余容量和报价均未读取；本方案不是上线完成报告。
+- 订阅、Japan East T4 配额和测试应用启动已有资源记录；当前项目镜像容量、完整报价、最新账单与业务流程仍待验证。本方案不是上线完成报告，也没有在本轮重新读取云资源状态。
 - 最大风险是 GPU 镜像体积、目标环境双容器资源约束、Files 吞吐及冷启动；风险消除前不能准确承诺工期或单视频成本。
 - CPU VM 为低改造成本首期方案，存在单机故障窗口及自行维护责任。未来若改为 CPU ACA 多副本，应先把 Studio SQLite 迁至满足现有事务语义的共享数据库。
 - 第一阶段跑通后，再按监测结果决定是否把转写/翻译等待与 CPU 渲染移出 GPU 副本、是否合并多条短任务减少冷启动、是否需要增加并发。不要在此次迁移同时改变算法、并发模型和计费规则。

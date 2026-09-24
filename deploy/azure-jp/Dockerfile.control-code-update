@@ -1,0 +1,5 @@
+# Update application code on an already validated, immutable runtime.
+# Use only when pyproject.toml runtime dependencies have not changed.
+ARG CONTROL_BASE
+FROM ${CONTROL_BASE}
+COPY --chown=10001:10001 videotranslator/ /usr/local/lib/python3.12/site-packages/videotranslator/
