@@ -77,10 +77,11 @@ Admission is disabled by default (`GPU_STARTS_ENABLED=false` and
 `CLOUD_ACCEPT_JOBS=false`). For automatic task processing, explicitly set both to
 `true` in the private `.env`, and set `CLOUD_VALIDATION_MAX_JOBS=0` to disable the
 lifetime validation-attempt counter. This does not disable the web's daily/monthly
-cost admission checks, single active GPU job limit, or engine execution deadline.
+cost admission checks, single active GPU job limit, or engine health supervision.
 To pause new admissions, set both switches to `false` and recreate web/control;
 already submitted GPU work is allowed to finish. Initial validation limits
-are one admitted job and a maximum 1800-second deadline, including GPU startup.
+were one admitted job and a maximum 1800-second deadline, including GPU startup.
+These were validation settings; the health-supervised production policy below supersedes that deadline.
 The attended validation override permits three cumulative attempts to cover the
 sample correction and cloud model-reload timeout fix; this is not production capacity.
 The PostgreSQL view excludes expired jobs even when control/worker is down. Running
@@ -88,7 +89,7 @@ and cancellation-pending work remains counted until terminal or expired.
 
 Every request gets a unique execution directory. A worker crash fails that attempt
 closed; a user retry uses a new attempt and directory. A stale process cannot
-publish a completed result after the deadline or cancellation. Results are copied
+publish a completed result after an expired execution lease or cancellation. Results are copied
 to generation-specific Blob keys, decoded and checked, and a publication manifest
 is written last. CPU export does not keep the GPU awake.
 
@@ -103,13 +104,147 @@ one T4 and a 25-minute limit. It deactivates test revisions and resets min repli
 to zero in `finally`. Review `vt-data/azure-tmp/gpu-validation-result.json` and the
 actual Azure revision state afterwards; errors require immediate cleanup.
 
-Budget alerts are not spending caps. The authorized US$20 is a validation budget,
-not approval to keep a CPU VM running indefinitely. The review website is time-bounded
-by the configured VM auto-shutdown. Admission settings must reflect the explicitly
-authorized operating window; changing the defaults alone does not pause a deployment
-whose private `.env` explicitly enables them.
-Verify deallocation when the review window ends. Disk, registry and stored model
-charges continue independently of GPU/VM compute.
+On 2026-09-24 the user authorized continuous web operation. The CPU VM's daily
+05:16 UTC shutdown schedule is now **Disabled**. Keep this VM running; do not stop
+the website as GPU cleanup. `provision-cpu.ps1` defaults to no shutdown schedule;
+its `-ValidationAutoShutdown` switch is only for explicitly time-limited validation.
+
+GPU scale remains min=0/max=1 with durable queued/running work as its trigger.
+Verification found zero replicas while idle. GPU startup, model loading, processing
+and cooldown can consume billable replica time; CPU, disks, registry, storage and
+traffic charges are separate. Existing application GPU admission budgets remain.
+Budget alerts are not spending caps, and the earlier US$20 validation allowance
+does not cover indefinite web operation newly authorized by the user.
+
+## Conversation assistant update (2026-09-24)
+
+The web service previously had no DeepSeek key and used keyword-only guidance.
+It now reuses the project's existing DeepSeek credentials privately with
+`CHAT_MODEL=deepseek-flash`. Current control image:
+`vtranslatorjpe43892.azurecr.io/videotranslator/control@sha256:ce34b3df0de7a4f557d2dc7cd4cb4fb4246fe71422d5c9a2824b3a43d143037a`.
+
+Unsupported dubbing targets receive a Chinese/English capability clarification;
+changing to an unsupported target clears the previous selection before confirmation.
+Source-language descriptions do not trigger this rejection. The interpreter
+classifies unrelated requests and casual chat as `off_topic`; application-owned
+copy politely declines and clears extracted slot changes, preserving the existing
+draft. Offline guidance also handles common unsupported targets and unrelated input.
+
+220 control unit tests passed, including 16 new language/scope regressions. Live
+authenticated API checks with the validation account confirmed French rejection,
+English selection, casual-chat/code/instruction-override refusal, and invalidation
+of a previously selected target. No downloads, GPU tasks or balance changes were
+triggered. The public site continues to use live payments. Private `.env` and
+`studio.env` backups use suffix `.before-assistant-scope-20260924`.
+
+Follow-up release `assistant-feedback-20260924` uses control digest
+`sha256:4d63138c578bb2d6b42cdfcfd34f308a370ea5605143252a639d66971594f500`.
+The assistant now recognizes complaints about this app's features or output quality
+originally responded with an apology and the author's email contact. This behavior
+was superseded by the conversation-log release below.
+No permanent contact element or email was added to the page or static JavaScript.
+Ordinary requests and off-topic refusals do not include the feedback contact.
+Complaints do not change draft source/target selections or send email automatically.
+53 conversation regression tests passed, including complaint routing and preservation
+of existing draft selections. Configuration backups use
+`.before-assistant-feedback-20260924`.
+
+## Server-side conversation logs (2026-09-24)
+
+The feedback-list idea was cancelled before deployment. There is no feedback UI,
+list/delete API, or email suggestion in complaint replies. Complaints receive an
+acknowledgement; all accepted conversation turns are archived regardless of intent.
+
+`ConversationLog` documents use collection `conversation_logs` in the existing
+persistent store (`/data/store-stripe-live.db` in the production web container,
+`/srv/videotranslator/studio-data/store-stripe-live.db` on the VM). Each record contains
+the authenticated user ID, conversation ID, revision, timestamp, locale, interpreter
+mode, intent, associated job ID when available, and submitted input/assistant reply.
+Button/file selections are recorded as structured input; UI-generated prompts retain
+their step identifiers. Created conversations, language changes and continued rounds
+also have events. Headers, authentication tokens and model credentials are not logged.
+
+Archive insertion and conversation changes commit in one transaction. Failed/stale
+requests do not create successful-turn records; retries cannot duplicate an accepted
+revision. Logs survive container replacement and new conversations. Existing historical
+messages remain in `conversations`; separate timestamped logs begin with this release
+and no timestamps are invented for old messages. No automatic archive expiry is set.
+There is no public archive route; operators inspect the database with server access.
+For example, this read-only SQL filters by a known conversation ID (bind `?`):
+
+```sql
+SELECT data FROM docs
+WHERE collection = 'conversation_logs'
+  AND json_extract(data, '$.conversation_id') = ?
+ORDER BY json_extract(data, '$.revision');
+```
+
+Release `conversation-logs-20260924` uses control digest
+`sha256:771f105760ffb1c829c93d1727128ea53a858c6ab0a047eccaf5467df8bb7b3b`.
+233 unit tests passed, including SQLite reopen, transactional rollback, duplicate
+request rejection and removal of feedback/public-log endpoints. Deployment backups
+use `.before-conversation-logs-20260924`. Live Stripe and GPU settings are preserved.
+Authenticated production checks covered complaints, French-target clarification and
+off-topic refusal. A read-only production database check confirmed the creation event
+and all three exact input/reply pairs, with user ID and timestamps. Public readiness
+passed; no translation jobs or balance changes were triggered by validation.
+
+## Health-supervised execution (2026-09-24)
+
+Production `azure-jp-t4` now submits `processing_profile=health-v1`. Healthy jobs
+have no total execution deadline. `max_runtime_seconds` remains a compatibility
+field and conservative *admission estimate*, not a runtime cap for this profile.
+Existing fixed-policy jobs retain their original engine semantics; retries submitted
+by the updated web use the new policy. The web watchdog defers to the private engine.
+
+The existing PostgreSQL `cloud_executions.deadline` column is a renewable lease:
+queued work has 15 minutes to establish a worker heartbeat, then the worker renews
+a 180-second lease while holding its exclusive database lock. The scaler's existing
+`gpu_runnable_work` view follows this lease, so a healthy long-running job remains
+eligible and an abandoned worker eventually ceases to hold a GPU replica alive.
+Expired leases cannot be revived; late results are fenced as before.
+
+The supervisor checks stage/progress changes, substantive process-tree CPU or I/O,
+and GPU service activity. The private GPU service reports an activity sequence using
+process-tree activity and `nvidia-smi` GPU utilization, sampled every 10 seconds.
+If **all** activity remains absent for 15 minutes, the supervisor fails the attempt
+and stops its child. Process exit, GPU service errors, user cancellation and lock
+loss also stop work. This is an inactivity detector, not a per-step duration cap;
+activity sampling cannot prove semantic correctness of an indefinitely busy process.
+
+In supervised children, TTS synthesis/model-tokenization reads and ffmpeg processing
+have no fixed duration timeout; the parent owns health checks and cancellation.
+The GPU Demucs service also removes its old total duration cap in cloud health mode.
+Connection timeouts and external API no-response timeouts remain. No GPU model,
+pricing rate, concurrency limit, payment mode or download worker is changed.
+Cost budgets remain **admission controls**, not guaranteed total spending caps:
+healthy work can exceed its reservation, and terminal measured engine runtime is used
+for settlement (including failures). Instance startup/cooldown charges remain separate
+from this application's runtime estimate. Do not describe admission reservations as
+maximum possible cost now that the user has removed fixed runtime limits.
+
+Validation: 235 control tests and 107 engine tests passed. Simulated healthy work
+runs for two hours despite a one-second legacy cap; silent work fails on inactivity;
+lost leases cannot be renewed and cancellation during model loading remains fenced.
+No paid full-video retry was started as part of this deployment.
+
+Live release: `videotranslator-gpu--health-1790216303` (the previous GPU revision is
+inactive). Web and engine-control readiness passed with live Stripe preserved.
+The GPU service activity endpoint was queried inside the Azure worker during model
+loading and returned a growing activity sequence, confirming cloud instrumentation.
+The new revision briefly started one replica for initialization and was verified to
+return automatically to zero with no queued jobs. Full T4 model readiness and a complete
+long-video translation were not rerun; the real Azure activity endpoint, local GPU
+instrumentation, and simulated long-running supervision were verified.
+Configuration rollback files are `.env.before-health-execution-20260924` and
+`compose.cpu.yml.before-health-execution-20260924` on the CPU VM.
+
+Immutable release images:
+
+- engine: `vtranslatorjpe43892.azurecr.io/videotranslator/engine@sha256:ffb896464e682a7a74f0cf7e1d720f5ae084b16554adf1d6b450b0a7e39f360d`
+- control: `vtranslatorjpe43892.azurecr.io/videotranslator/control@sha256:09f55e813b95a8e156623bfc13cfb023ceefe44985b05585ff78789b195ed707`
+- tts: `vtranslatorjpe43892.azurecr.io/videotranslator/tts@sha256:512ffe135fd52c8b5fbd72c4fd066a028368bfda11385634474847e950153122`
+
 
 ## Verification completed locally (2026-09-23)
 
@@ -125,3 +260,68 @@ charges continue independently of GPU/VM compute.
   expired-SAS denial passed. Production billing/data are not migrated.
 - Anonymous YouTube import is blocked by the Azure exit IP's sign-in challenge.
   Do not describe Internet reachability as successful YouTube download support.
+
+
+### 2026-09-24 dynamic pricing release
+
+Web control image: `vtranslatorjpe43892.azurecr.io/videotranslator/control@sha256:807acebc0dce82c0348b593f060195c4875792ee71f9c8d4400341db102a97c2`.
+Runtime price is persisted in `/data/store-stripe-live.db`; owner allowlist is configured
+with `ADMIN_USER_IDS` in private `studio.env`. Account menu → Manage pricing saves new
+prices immediately; future changes do not require deployment. Existing quote versions
+remain valid, including a price update racing with confirmation. Initial live price:
+20 cents/minute, 10 cents minimum, round total upward to 10-cent increments.
+Only web was updated. Live Stripe and health-supervised, scale-to-zero GPU remain enabled.
+VM backups: `.env.before-admin-pricing-20260924`, `studio.env.before-admin-pricing-20260924`,
+`studio-data/store-stripe-live.before-admin-pricing-20260924.db`.
+Do not roll back to code without runtime pricing support after changing a price; it
+would ignore the active price pointer. Never restore an old database over subsequent
+payments or jobs. Correct a price through the admin form instead.
+
+
+### 2026-09-24 result export correction
+
+Web image: `vtranslatorjpe43892.azurecr.io/videotranslator/control@sha256:ee1f1cc20f4023ee00530620351aebe4b745acc441b9f543ea6a335c9f7bf2da`. Private engine export now probes media and stream-copies
+already-compatible H.264/yuv420p video and AAC audio, preserving subtitles and faststart.
+Other codecs still transcode; duration and full-decode validation remain mandatory.
+This removes the redundant full CPU encode after the GPU pipeline has produced a
+browser-compatible MP4. Existing engine results are reused; no new GPU execution or charge.
+
+
+### 2026-09-24 short audio splice fades
+
+Engine image: `vtranslatorjpe43892.azurecr.io/videotranslator/engine@sha256:4cf5c555d6f7019c9a44754ea08824cfe356d6cc1bdbaead7c27d3bb6c45a0c8`.
+GPU revision: `videotranslator-gpu--splice-1790221197`, min=0 / max=1.
+The timeline applies 5 ms raised-cosine fades to dubbed edges, finds the actual
+nonzero region inside digital padding, and blends the source replacement/fallback
+boundaries. Adjacent replacement windows are merged to avoid leaking source speech
+at joins. Absolute timing and total sample count are unchanged; overlapping speakers
+still sum, fallback/event interiors remain intact, and streaming memory is bounded.
+The manifest records `splice_policy: raised_cosine_5ms_v1`.
+
+Validation: 115 engine tests pass, including boundary discontinuity, padding, short
+clips, overlapping replacement/fallback, and unchanged central audio regressions.
+Existing job `job_fcb08fc9c43af693` was remixed from cached aligned speech on the CPU
+under `jobs/2b1042ff-0822-4e98-918b-756ed77f7cd9/repairs/splice-5ms-v1/`.
+Publication uses a new `.splice5ms-zho.mp4` blob and matching VTT; the old output is
+retained. A full decode/duration check precedes changing the job output pointer.
+No new translation job or charge is created. The publication/rollback record is
+`/srv/videotranslator/studio-data/tmp/splice-repair/publication.json`.
+
+Measured on 650 actual replacement boundaries: 95th-percentile sample jump fell from
+0.114925 to 0.015497 (86.5%); peak fell from 0.397278 to 0.066223. These are waveform
+discontinuity measurements, not a guarantee against noise inside generated speech.
+
+
+### 2026-09-24 consolidated release and idle GPU readiness
+
+`release.json` records the current immutable images and GPU revision. All 66 control
+source/web files and 21 engine Python files match the deployed containers byte-for-byte.
+Validation totals: 250 control tests, 115 engine tests, 18 browser-module tests.
+
+The private GPU app now uses TCP readiness on port 8001 for platform activation.
+Previously, an empty queue caused KEDA to scale the initial replica to zero before
+model loading completed, leaving Azure's revision marked `ActivationFailed` despite
+normal scale-down. TCP readiness indicates the service process has started. The worker
+still requires HTTP `/health` to report model readiness before processing any job,
+and retains activity/heartbeat supervision. No public ingress exposes the model.
+This changes neither the GPU minimum of zero nor the maximum of one replica.

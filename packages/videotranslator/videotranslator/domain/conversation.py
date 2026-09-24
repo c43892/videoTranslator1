@@ -2,7 +2,24 @@
 from dataclasses import dataclass, field
 from typing import ClassVar
 
-from .models import Document
+from .models import Document, now_ms
+
+
+@dataclass
+class ConversationLog(Document):
+    """Server-only archive; written atomically with each accepted conversation change."""
+    COLLECTION: ClassVar[str] = "conversation_logs"
+    log_id: str = ""
+    conversation_id: str = ""
+    owner_user_id: str = ""
+    revision: int = 0
+    event: str = "message"
+    created_at: int = field(default_factory=now_ms)
+    locale: str = "en"
+    interpreter_mode: str = "guided"
+    intent: str = ""
+    job_id: str = ""
+    messages: list[dict] = field(default_factory=list)
 
 
 @dataclass

@@ -45,7 +45,7 @@ The test profile uses `fake:<uid>` / `fake:<uid>:unverified`. Local and cloud
 profiles default to verified Firebase ID tokens. Explicit local-only
 `AUTH_MODE=demo` enables emulator identities and disables real payments.
 See [account and billing setup](../../docs/ACCOUNTS_AND_BILLING.md) for
-Google/email login, Stripe/PayPal top-ups, and the $0.10/minute audio/video flow.
+Google/email login, Stripe/PayPal top-ups, and the $0.20/minute audio/video flow.
 
 ## What's implemented vs. stubbed
 

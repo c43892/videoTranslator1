@@ -8,3 +8,5 @@ vt-data/
 !.env.example
 *_credential.txt
 secrets/
+
+.playwright-mcp/

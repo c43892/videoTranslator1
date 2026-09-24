@@ -28,7 +28,7 @@ def test_concurrent_failure_returns_actual_debit_once_and_can_be_spent(container
             refund=False,now=NOW+1)  # Legacy callers cannot suppress the new rule.
     with ThreadPoolExecutor(max_workers=4) as pool:
         results=list(pool.map(fail,range(4)))
-    assert all(job.status == JobStatus.FAILED and job.balance_returned_cents == 15 for job in results)
+    assert all(job.status == JobStatus.FAILED and job.balance_returned_cents == 30 for job in results)
     with container.store.transaction() as tx:
         assert tx.get(User,user.user_id).point_balance_units == 1000
         entries=tx.query(LedgerEntry)
@@ -36,7 +36,7 @@ def test_concurrent_failure_returns_actual_debit_once_and_can_be_spent(container
         assert sum(e.delta_units for e in entries) == 0
     make_job_via_inspection(container,user.user_id,duration_ms=90000,job_id='next-task',now=NOW+2)
     with container.store.transaction() as tx:
-        assert tx.get(User,user.user_id).point_balance_units == 985
+        assert tx.get(User,user.user_id).point_balance_units == 970
         assert tx.get(Job,'next-task').status == JobStatus.QUEUED
 
 
@@ -70,7 +70,9 @@ def test_uncharged_inspection_does_not_create_credit(container,user):
 
 
 def test_legacy_failed_debit_recovered_after_restart(container,tmp_path):
-    settings=replace(container.settings,store_path=str(tmp_path/'returns.db'),pricing=Settings().pricing)
+    old_price=replace(Settings().pricing,pricing_version='usd-cent-v1',point_units_per_minute=10,
+                      minimum_point_units=1,billing_increment_units=1,rounding='ceil_final_point_unit')
+    settings=replace(container.settings,store_path=str(tmp_path/'returns.db'),pricing=old_price)
     original=build_container(settings)
     with original.store.transaction() as tx:
         tx.insert(User(user_id='u1',point_balance_units=1000),'u1')
@@ -79,7 +81,7 @@ def test_legacy_failed_debit_recovered_after_restart(container,tmp_path):
         job=tx.get(Job,'job_t1')
         job.status,job.error_message,job.completed_at=JobStatus.FAILED,'Original failure',NOW
         tx.put(job,job.job_id)
-    restarted=build_container(settings)
+    restarted=build_container(replace(settings,pricing=Settings().pricing))
     restarted.reconciler.reconcile_once(now=NOW+1)
     restarted.reconciler.reconcile_once(now=NOW+2)
     with restarted.store.transaction() as tx:
@@ -97,4 +99,4 @@ def test_late_failure_does_not_return_successful_job_charge(container,user):
     completed=container.funding.fail_and_refund('job_t1',error_code=ErrorCode.BACKEND_FAILED,now=NOW+1)
     assert completed.status == JobStatus.SUCCEEDED and completed.balance_returned_cents == 0
     with container.store.transaction() as tx:
-        assert tx.get(User,user.user_id).point_balance_units == 985
+        assert tx.get(User,user.user_id).point_balance_units == 970

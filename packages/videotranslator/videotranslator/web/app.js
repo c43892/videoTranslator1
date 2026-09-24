@@ -1,10 +1,12 @@
-import {copy, normalizeLocale} from './i18n.js?v=20260924-auto-queue';
+import {copy, normalizeLocale} from './i18n.js?v=20260924-admin-pricing';
 import {createLanguagePicker} from './language-picker.js?v=20260923-stripe-env';
-import {createAccount} from './account.js?v=20260923-stripe-env';
+import {createAccount} from './account.js?v=20260924-admin-pricing';
 import {createHistory, queueMessageKey} from './history.js?v=20260924-auto-queue';
 import {authenticatedFetch} from './authenticated-request.js?v=20260923-stripe-env';
 import {createErrorNotice} from './error-notice.js?v=20260923-stripe-env';
 import {uploadBlob} from './blob-upload.js?v=20260923-azure';
+
+import {createAdminPricing, pricingText} from './admin-pricing.js?v=20260924-pricing';
 
 const $ = id => document.getElementById(id);
 const languagePicker = createLanguagePicker($('locale'));
@@ -12,7 +14,7 @@ for (const option of $('locale').options) $('auth-locale').append(option.cloneNo
 const authLanguagePicker = createLanguagePicker($('auth-locale'));
 let language = normalizeLocale(navigator.languages?.[0] || navigator.language);
 let draft, config, selectedFile, tokenProvider, account, history, owner, verified = false, busy = false, timer, uploadPercent = null;
-let restorePromise;
+let restorePromise, adminPricing;
 const saved = (key, value) => {try {if (value === undefined) return localStorage.getItem(key); if (value === null) localStorage.removeItem(key); else localStorage.setItem(key, value);} catch {} return null;};
 let preferredLocale = saved('vt.locale') || '';
 if (preferredLocale) {
@@ -20,7 +22,7 @@ if (preferredLocale) {
   saved('vt.locale', preferredLocale); language = preferredLocale;
 }
 const conversationKey = () => `vt.conversation.${config?.payment_mode || 'disabled'}.${owner}`;
-const t = key => copy[language]?.[key] || copy.en[key] || key;
+const t = key => ['rateNotice','roundingNotice'].includes(key) ? pricingText(key, key === 'roundingNotice' && draft?.quote ? draft.quote : config, language) : copy[language]?.[key] || copy.en[key] || key;
 const errorNotice = createErrorNotice({element:$('error'), t,
   isRunning:() => !!draft?.job && !['succeeded','failed','cancelled','expired'].includes(draft.job.status)});
 const node = (tag, className, text) => {const el = document.createElement(tag); if (className) el.className = className; if (text !== undefined) el.textContent = text; return el;};
@@ -40,6 +42,7 @@ function localize() {
   languagePicker.update(language, t('auto'));
   authLanguagePicker.update(language, t('auto'));
   account?.localize();
+  adminPricing?.localize();
   $('payment-mode-badge').hidden = config?.payment_mode !== 'sandbox';
   history?.render();
 }
@@ -423,6 +426,7 @@ async function boot() {
   try {
     config = await fetch('/api/v1/chat/config').then(response => response.json());
     $('demo').hidden = !config.demo;
+    adminPricing = createAdminPricing({api, language:() => language, updated:price => {Object.assign(config, price); render();}});
     account = await createAccount({config,api,t,report:error => showError(error, {background:true, source:'balance'}),changed:async user => {
       if (owner === user?.uid && verified === !!user?.emailVerified && (!verified || draft)) return;
       clearTimeout(timer); draft = undefined; selectedFile = undefined; uploadPercent = null;
@@ -440,3 +444,15 @@ async function boot() {
 document.addEventListener('balance-updated', () => {errorNotice.recovered('balance'); if (draft?.status === 'draft' && draft.quote) render();});
 history = createHistory({api,t,money:cents => account.money(cents),download:downloadJob,preview:previewResult,refreshBalance:() => account.refresh()});
 boot();
+
+async function refreshPublicPricing() {
+  if (!config || document.hidden) return;
+  try {
+    const response = await fetch('/api/v1/chat/config', {cache:'no-store'});
+    if (!response.ok) return;
+    const latest = await response.json();
+    if (latest.pricing_version !== config.pricing_version) {Object.assign(config, latest); localize();}
+  } catch { /* Keep the last known price; confirmation uses the server quote. */ }
+}
+window.addEventListener('focus', refreshPublicPricing);
+setInterval(refreshPublicPricing, 60000);

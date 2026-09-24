@@ -87,6 +87,7 @@ class CompleteInspectionCommand:
     terms_version: str = ""
     media_rights_attested_at: int = 0
     now: int = 0
+    pricing_version: str = ""
 
 
 @dataclass(frozen=True)
@@ -105,12 +106,15 @@ class CancelResultView:
 class JobFundingUnitOfWork:
     """Owns the transaction boundary for charge/enqueue/cancel/fail (§6.5)."""
 
-    def __init__(self, store: Store, pricing: PricingConfig, cost: CostPolicy, *, max_active_jobs_per_user: int = 1, processing_available: bool = True):
+    def __init__(self, store: Store, pricing: PricingConfig, cost: CostPolicy, *, max_active_jobs_per_user: int = 1, processing_available: bool = True, health_supervised: bool = False):
         self._store = store
         self._pricing = pricing
+        from .pricing import PricingService
+        self.pricing = PricingService(store, lambda: self._pricing)
         self._cost = cost
         self._max_active = max_active_jobs_per_user
         self.processing_available = processing_available
+        self.health_supervised = health_supervised
 
     def require_processing(self) -> None:
         if not self.processing_available:
@@ -191,7 +195,7 @@ class JobFundingUnitOfWork:
         return self._cost.daily_budget_minor if period_id.startswith("day:") else self._cost.monthly_budget_minor
 
     def _reservation_amount(self, job: Job) -> int:
-        # Worst-case reservation: max_runtime × hourly rate (§14.4).
+        # For health-supervised cloud jobs this is an admission estimate, not a run cap.
         return -(-self._cost.hourly_rate_minor * job.max_runtime_seconds // 3600)
 
     def _reserve_and_charge(self, tx: Tx, job: Job, user: User, now: int) -> None:
@@ -252,7 +256,8 @@ class JobFundingUnitOfWork:
 
         job.charged_ledger_entry_id = entry.ledger_entry_id
         job.capacity_wait_reason, job.capacity_next_check_at = "", 0
-        job.execution_deadline_at = now + (cost.provisioning_allowance_s + job.max_runtime_seconds) * 1000
+        job.execution_deadline_at = (None if self.health_supervised else
+            now + (cost.provisioning_allowance_s + job.max_runtime_seconds) * 1000)
         job.capacity_last_tick_at = now
         job.queued_at = now
         self._move(tx, job, JobStatus.QUEUED)
@@ -280,7 +285,7 @@ class JobFundingUnitOfWork:
             duration_ms=job.duration_ms,
             target_language=job.target_language,
             source_language=None,
-            processing_profile="default-v1",
+            processing_profile="health-v1" if self.health_supervised else "default-v1",
             duration_policy_version="duration-v1",
             max_runtime_seconds=job.max_runtime_seconds,
         )
@@ -324,7 +329,7 @@ class JobFundingUnitOfWork:
                 job = tx.get(Job, job.job_id)
             if job.inspection_attempt not in (0, command.inspection_attempt):
                 raise DomainError("stale inspection attempt", code=ErrorCode.INVALID_TRANSITION)
-            quote = quote_job(self._pricing, command.duration_ms, command.media_type)  # may raise MEDIA_TOO_LONG
+            quote = quote_job(self.pricing.resolve(tx, command.pricing_version) if command.pricing_version else self.pricing.snapshot(tx), command.duration_ms, command.media_type)  # may raise MEDIA_TOO_LONG
             job.inspection_attempt = command.inspection_attempt
             job.duration_ms = command.duration_ms
             job.duration_probe_raw = command.duration_probe_raw

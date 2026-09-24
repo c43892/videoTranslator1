@@ -207,6 +207,7 @@ class Pipeline:
         manifest['completion_policy'] = 'preserve_original_on_segment_review'
         manifest['voice_reference_policy'] = 'current_original_segment_for_both_prompts'
         manifest['dialogue_policy'] = 'preserve_source_except_successful_dialogue'
+        manifest['splice_policy'] = 'raised_cosine_5ms_v1'
         manifest['warnings'].extend(
             f'{s.id}（{s.start:.2f}–{s.end:.2f} 秒）未替换，已保留原对白：' + '; '.join(s.flags)
             for s in segments if s.render_status == 'original')

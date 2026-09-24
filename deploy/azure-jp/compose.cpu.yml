@@ -17,7 +17,7 @@ services:
     env_file: ./studio.env
     environment:
       APP_PROFILE: azure-jp-t4
-      PAYMENT_MODE: sandbox
+      PAYMENT_MODE: ${PAYMENT_MODE:-sandbox}
       ENGINE_CONTROL_URL: http://engine-control:8080
       PAYMENT_SANDBOX_STORE_PATH: /data/store-stripe-sandbox.db
       PAYMENT_SANDBOX_QUEUE_PATH: /data/inspection-queue-sandbox.db
@@ -44,7 +44,6 @@ services:
       STORAGE_ROOT: /data
       CLOUD_ACCEPT_JOBS: ${CLOUD_ACCEPT_JOBS:-false}
       CLOUD_VALIDATION_MAX_JOBS: ${CLOUD_VALIDATION_MAX_JOBS:-1}
-      CLOUD_JOB_MAX_SECONDS: '1800'
     command: [uvicorn, videotranslator.cloud_control:app, --host, '0.0.0.0', --port, '8080']
     volumes: ['/mnt/videotranslator-data:/data']
     depends_on:

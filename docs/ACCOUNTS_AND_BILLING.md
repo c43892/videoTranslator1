@@ -4,9 +4,12 @@
 
 - USD balance uses integer cents (`point_balance_units` remains the internal
   ledger field; `/me.balance_cents` is the public display amount).
-- Video and audio cost $0.10 per minute of trusted server-probed duration.
-  Round the final amount up to the next cent; minimum $0.01. For example,
-  60 seconds costs $0.10, 90 seconds $0.15, and 61 seconds $0.11.
+- Video and audio cost $0.20 per minute of trusted server-probed duration
+  (`usd-cent-v2`, 20 cents/minute).
+  Round the final amount up to the next $0.10; minimum $0.10. For example,
+  30 seconds costs $0.10, 60 seconds $0.20, 61 seconds $0.30, and 10 minutes $2.00.
+  Historical prices retain their saved rounding increment and charged amounts;
+  an unconfirmed quote from an older price version must be quoted again.
 - Supported local media: MP4, MKV, MOV, WebM, AVI, M4V; MP3, WAV, M4A,
   FLAC, AAC, OGG. The existing 30-minute / 2 GiB limits still apply.
 - Preparation uploads/downloads, probes, and freezes the exact quoted bytes.
@@ -243,3 +246,25 @@ public website. Public launch needs the actual HTTPS app domain, matching return
 URLs, a durable public Stripe webhook endpoint and its signing secret, plus the
 correct business website in Stripe. A temporary local CLI listener is not the
 public deployment's webhook service.
+
+
+## Runtime pricing administration
+
+Sign in as an administrator and open the account menu → **Manage pricing** (价格管理).
+The form accepts USD per minute, minimum charge, and rounding increment. Save applies
+immediately to new quotes, with no container restart or redeployment. Existing quotes,
+queued jobs and retries retain their original immutable pricing version. Quotes charge
+actual duration, rounding the final total upward to a multiple of the increment.
+
+Access is restricted on the server to verified Firebase UIDs in `ADMIN_USER_IDS`.
+An empty allowlist disables administration. `GET/PUT /api/v1/admin/pricing` require
+administrator authentication. PUT uses integer cents and an `expected_version` to
+reject concurrent stale edits. Each saved `pricing_configs` record includes actor UID
+and time; `pricing_state/active` points to the active immutable version. Both are
+persisted in the payment environment's SQLite store and must be included in backups.
+Startup seed never resets this pointer; environment prices are only the initial fallback.
+The public `/api/v1/chat/config` supplies prices to the UI, refreshed on window focus
+and every minute. Displayed quote details always use their own stored pricing version.
+
+Production initial price: USD 0.20/min, USD 0.10 minimum, USD 0.10 rounding increment.
+For example, 61 seconds costs USD 0.30; 90 seconds also costs USD 0.30.

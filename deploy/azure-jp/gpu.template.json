@@ -13,9 +13,9 @@
           "name": "tts",
           "image": "REPLACE_TTS_IMAGE_DIGEST",
           "resources": {"cpu": 6, "memory": "48Gi"},
-          "env": [{"name":"STORAGE_ROOT","value":"/data"}],
+          "env": [{"name":"STORAGE_ROOT","value":"/data"},{"name":"CLOUD_HEALTH_EXECUTION","value":"1"}],
           "volumeMounts": [{"volumeName":"data","mountPath":"/data"},{"volumeName":"models","mountPath":"/models"}],
-          "probes": [{"type":"Readiness","httpGet":{"path":"/health","port":8001},"initialDelaySeconds":10,"periodSeconds":15,"timeoutSeconds":5,"failureThreshold":48}]
+          "probes": [{"type":"Readiness","tcpSocket":{"port":8001},"initialDelaySeconds":10,"periodSeconds":15,"timeoutSeconds":5,"failureThreshold":48}]
         },
         {
           "name": "worker",

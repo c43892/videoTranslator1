@@ -98,3 +98,43 @@ unconfigured until its sandbox/live credentials are separately managed.
 References: [Stripe sandbox testing](https://docs.stripe.com/testing),
 [Stripe webhooks](https://docs.stripe.com/webhooks),
 [Stripe secret handling](https://docs.stripe.com/keys-best-practices).
+
+## vidyi.cc live cutover — 2026-09-24
+
+The public Azure site now selects `PAYMENT_MODE=live` through its private Compose
+`.env`. The tracked Compose file uses `${PAYMENT_MODE:-sandbox}`. Local Windows
+remains in sandbox mode. Application images, GPU admission and limits are unchanged.
+
+The existing restricted live key was reused without expanding its permissions.
+Stripe destination `vidyi-production` (`we_1UJ0xcA9Wq7eEimkOpDsynTa`) is active at
+`https://vidyi.cc/api/v1/webhooks/stripe`, listening for
+`checkout.session.completed` and `checkout.session.async_payment_succeeded`.
+The destination-specific signing secret is configured privately on the VM; the
+local Stripe CLI signing secret is not reused for this endpoint.
+
+Before cutover, Studio was stopped and its sandbox database rechecked: no unfinished
+translations/downloads; the only pending checkout was verified expired and unpaid.
+Sandbox SQLite was backed up and retained. Live uses its own initially empty
+wallet/history and inspection databases. Sandbox balances and test results were
+not copied into live balances or history. Existing Firebase login continues to work.
+
+Validation confirmed public live mode, zero initial live balance, rejection of
+stale sandbox headers, and idempotent creation of a real-mode USD 1.00 Checkout
+session with the correct vidyi.cc return URL. That validation session was expired
+without payment. A deliberately ignored non-payment payload signed with the new
+endpoint secret was accepted; invalid signatures were rejected. No actual charge
+or genuine Stripe payment-success delivery was performed in this cutover test.
+Browser verification confirms the test badge is absent and Stripe top-up is enabled.
+
+VM configuration backups are `.env.before-stripe-live-20260924`,
+`studio.env.before-stripe-live-20260924` and
+`compose.cpu.yml.before-stripe-live-20260924` under `/srv/videotranslator`.
+Switching back later requires draining and checking **live** tasks/payments first;
+never blindly restore a sandbox config while live payments remain unresolved.
+
+The original 05:16 UTC shutdown was retained during payment cutover. In the
+subsequent explicit request for continuous web service on 2026-09-24, the user
+authorized keeping the CPU VM online, and that shutdown schedule was disabled.
+GPU remains task-driven with min=0/max=1; idle verification found zero replicas.
+CPU and storage costs continue independently of GPU usage. The home downloader
+still needs its Windows host online to service YouTube downloads.

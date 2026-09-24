@@ -5,10 +5,11 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from ..conversation_ports import ConversationInterpreter, Interpretation, VideoSourceImporter
-from ..domain.conversation import Conversation
+from ..domain.conversation import Conversation, ConversationLog
 from ..domain.enums import Forbidden, InsufficientCredits, InvalidTransition, NotFound, StaleVersion
 from ..domain.models import Job, UploadSession, User, now_ms
 from ..domain.pricing import quote_job
+from .pricing import public_price
 from .uow import CompleteInspectionCommand
 from ..ids import new_id
 
@@ -31,7 +32,19 @@ class ConversationService:
                              interpreter_mode=getattr(self.interpreter, "mode", "guided"))
         with self.store.transaction() as tx:
             tx.insert(draft, draft.conversation_id)
+            self.archive(tx, draft, event="created")
         return self.get(draft.conversation_id, owner)
+
+    @staticmethod
+    def archive(tx, draft, *, event="message", messages=(), intent=""):
+        # Stable identity plus the draft's version check prevents duplicate logs on retries.
+        # Only explicit conversation data is recorded, never request headers or credentials.
+        entry = ConversationLog(log_id=f"{draft.conversation_id}:{draft.revision}:{event}",
+            conversation_id=draft.conversation_id, owner_user_id=draft.owner_user_id,
+            revision=draft.revision, event=event, locale=draft.locale,
+            interpreter_mode=draft.interpreter_mode, intent=intent,
+            job_id=draft.job_id, messages=list(messages))
+        tx.insert(entry, entry.log_id)
 
     def owned(self, tx, key, owner):
         draft = tx.get(Conversation, key)
@@ -58,7 +71,8 @@ class ConversationService:
         if len(before.messages) - before.round_start >= 100:
             raise ValueError("conversation_limit")
         parsed = self.interpreter.interpret(text, {
-            "locale": before.explicit_locale or before.locale, "source_kind": before.source_kind,
+            "locale": before.explicit_locale or before.locale, "explicit_locale": before.explicit_locale,
+            "source_kind": before.source_kind,
             "target_language": before.target_language, "messages": before.messages[before.round_start:][-6:],
         }) if text else Interpretation()
         with self.store.transaction() as tx:
@@ -108,6 +122,9 @@ class ConversationService:
                 draft.messages.append({"role": "user", "text": text, "choice": choice, "value": value, "filename": filename})
                 # Assistant prose is display-only; it cannot affect readiness or confirmation.
                 draft.messages.append({"role": "assistant", "text": parsed.reply[:800], "step": self.step(draft)})
+            self.archive(tx, draft, event="locale" if choice == "locale" else "message", intent=parsed.intent if text else "",
+                         messages=[{"role": "user", "text": text, "choice": choice, "value": value, "filename": filename}] if choice == "locale"
+                         else draft.messages[-2:])
             tx.put(draft, key)
         return self.get(key, owner)
 
@@ -168,7 +185,6 @@ class ConversationService:
             with TemporaryDirectory(prefix="vt-quote-") as directory:
                 media = self.storage.download(session.object_key, Path(directory) / session.original_filename)
                 result = self.inspector.inspect(media)
-                quote = quote_job(self.settings.pricing, result.duration_ms, result.media_type)
                 frozen_key = f"users/{owner}/jobs/{session.reserved_job_id}/{new_id('prepared')}{Path(session.original_filename).suffix}"
                 if self.settings.profile == 'azure-jp-t4':
                     frozen_key = 'inputs/' + frozen_key
@@ -182,6 +198,7 @@ class ConversationService:
                 tx.put(upload, upload.upload_id)
                 current.duration_ms, current.duration_probe_raw = result.duration_ms, result.duration_probe_raw
                 current.media_type = str(result.media_type)
+                quote = quote_job(self.funding.pricing.snapshot(tx), result.duration_ms, result.media_type)
                 current.quoted_cents, current.pricing_version = quote.point_units, quote.pricing_version
                 current.status, current.lease_until, current.error = "draft", 0, ""
                 current.revision += 1
@@ -206,7 +223,7 @@ class ConversationService:
             self.funding.require_processing()
             if not draft.ready or not draft.duration_ms or not draft.upload_id:
                 raise InvalidTransition("quote_required")
-            quote = quote_job(self.settings.pricing, draft.duration_ms, draft.media_type)
+            quote = quote_job(self.funding.pricing.resolve(tx, draft.pricing_version), draft.duration_ms, draft.media_type)
             if (quote.pricing_version, quote.point_units) != (draft.pricing_version, draft.quoted_cents):
                 raise StaleVersion("price_changed")
             if draft.status not in {"draft", "confirming"}:
@@ -222,7 +239,7 @@ class ConversationService:
             job_id=draft.job_id, owner_user_id=owner, original_filename=session.original_filename,
             media_type=draft.media_type, target_language=draft.target_language,
             input_object_key=session.object_key, duration_ms=draft.duration_ms,
-            duration_probe_raw=draft.duration_probe_raw, inspection_attempt=1))
+            duration_probe_raw=draft.duration_probe_raw, inspection_attempt=1, pricing_version=draft.pricing_version))
         with self.store.transaction() as tx:
             current = self.owned(tx, key, owner)
             current.status = "submitted"
@@ -249,7 +266,7 @@ class ConversationService:
                 result["upload"] = asdict(self.jobs.upload_ticket(session))
         if draft.duration_ms:
             result["quote"] = {"duration_ms": draft.duration_ms, "amount_cents": draft.quoted_cents,
-                "rate_cents_per_minute": self.settings.pricing.point_units_per_minute,
+                **public_price(self.funding.pricing.current(draft.pricing_version)),
                 "currency": "USD", "pricing_version": draft.pricing_version}
         if draft.job_id:
             with self.store.transaction() as tx:
@@ -285,6 +302,7 @@ class ConversationService:
             draft = Conversation(conversation_id=key, owner_user_id=owner,
                 revision=revision + 1, locale=previous.locale, explicit_locale=previous.explicit_locale,
                 interpreter_mode=previous.interpreter_mode, messages=messages, round_start=len(messages))
+            self.archive(tx, draft, event="continued", messages=messages[-1:])
             tx.put(draft, key)
         return self.get(key, owner)
 

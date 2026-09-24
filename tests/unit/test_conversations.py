@@ -119,7 +119,7 @@ def test_upload_confirmation_is_atomic_and_idempotent(client, container):
     assert client.put(f"/api/v1/uploads/{upload}/content", content=b"abcd").status_code == 200
     assert client.post(f"/api/v1/uploads/{upload}/complete").status_code == 409
     quoted = client.post(f"/api/v1/conversations/{draft['conversation_id']}/inspect").json()
-    assert quoted["quote"]["amount_cents"] == 15
+    assert quoted["quote"]["amount_cents"] == 30
     with container.store.transaction() as tx:
         assert tx.query(Job) == [] and tx.query(LedgerEntry) == []
     assert confirm(client, quoted).status_code == 402
@@ -128,7 +128,7 @@ def test_upload_confirmation_is_atomic_and_idempotent(client, container):
         results = list(pool.map(lambda _: confirm(client, quoted), range(2)))
     assert all(r.status_code == 200 for r in results)
     assert results[0].json()["job_id"] == results[1].json()["job_id"]
-    assert client.get("/api/v1/me").json()["balance_cents"] == 985
+    assert client.get("/api/v1/me").json()["balance_cents"] == 970
     with container.store.transaction() as tx:
         assert len(tx.query(Job)) == len(tx.query(LedgerEntry)) == 1
 
@@ -213,7 +213,7 @@ def test_youtube_import_reuses_reservation_after_storage_failure(client, contain
     prepare(client, confirmed)
     container.conversations.import_one()
     done = client.get(f"/api/v1/conversations/{draft['conversation_id']}").json()
-    assert done["status"] == "draft" and done["quote"]["amount_cents"] == 15
+    assert done["status"] == "draft" and done["quote"]["amount_cents"] == 30
     with container.store.transaction() as tx:
         assert tx.query(Job) == []
     fund(container)
@@ -285,7 +285,7 @@ def prepared_audio(client):
 
 def test_audio_quote_frozen_media_and_final_confirmation(client, container):
     draft = prepared_audio(client)
-    assert draft["media_type"] == "audio" and draft["quote"]["amount_cents"] == 15
+    assert draft["media_type"] == "audio" and draft["quote"]["amount_cents"] == 30
     upload = container.jobs.get_upload(draft["upload_id"], "chat-user")
     assert "prepared_" in upload.object_key and "upload" not in draft
     assert client.put(f"/api/v1/uploads/{draft['upload_id']}/content", content=b"evil").status_code == 409
@@ -295,7 +295,7 @@ def test_audio_quote_frozen_media_and_final_confirmation(client, container):
     assert confirmed["job"]["media_type"] == "audio"
     with container.store.transaction() as tx:
         assert tx.query(JobOutbox)[0].jobspec["output_uri"].endswith(".mp3")
-    assert client.get("/api/v1/me").json()["balance_cents"] == 985
+    assert client.get("/api/v1/me").json()["balance_cents"] == 970
 
 
 def test_replacing_source_clears_quote_and_stale_confirmation(client, container):
@@ -307,6 +307,24 @@ def test_replacing_source_clears_quote_and_stale_confirmation(client, container)
     assert confirm(client, changed).status_code == 409
     with container.store.transaction() as tx:
         assert tx.query(Job) == []
+
+
+def test_old_quote_stays_locked_even_if_price_changes_during_confirmation(client, container):
+    draft = prepared_audio(client)
+    assert draft["quote"]["amount_cents"] == 30
+    fund(container)
+    original = container.funding.complete_inspection
+    def change_then_charge(command):
+        container.funding.pricing.update(expected_version=container.funding.pricing.current().pricing_version,
+            rate=40, minimum=10, increment=10, actor="admin")
+        return original(command)
+    container.funding.complete_inspection = change_then_charge
+    response = confirm(client, draft)
+    assert response.status_code == 200
+    assert response.json()["job"]["quoted_point_units"] == 30
+    assert client.get("/api/v1/me").json()["balance_cents"] == 970
+    assert response.json()["quote"]["rate_cents_per_minute"] == 20
+    assert prepared_audio(client)["quote"]["amount_cents"] == 60
 
 
 def test_target_edit_preserves_prepared_quote_and_uses_new_language(client, container):
@@ -328,7 +346,7 @@ def test_quote_survives_sqlite_restart_and_confirmation_is_once(container, tmp_p
     http2 = TestClient(create_app(second), headers=AUTH)
     assert confirm(http2, draft).status_code == 200
     assert confirm(http2, draft).status_code == 200
-    assert http2.get("/api/v1/me").json()["balance_cents"] == 985
+    assert http2.get("/api/v1/me").json()["balance_cents"] == 970
 
 
 def test_crashed_inspection_is_recovered_without_charge(client, container):
@@ -340,6 +358,6 @@ def test_crashed_inspection_is_recovered_without_charge(client, container):
         tx.put(row, row.conversation_id)
     container.conversations.import_one()
     restored = client.get(f"/api/v1/conversations/{draft['conversation_id']}").json()
-    assert restored["status"] == "draft" and restored["quote"]["amount_cents"] == 15
+    assert restored["status"] == "draft" and restored["quote"]["amount_cents"] == 30
     with container.store.transaction() as tx:
         assert tx.query(Job) == [] and tx.query(LedgerEntry) == []

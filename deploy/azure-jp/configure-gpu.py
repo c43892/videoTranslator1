@@ -52,8 +52,7 @@ GRANT SELECT ON gpu_runnable_work TO gpu_scaler;
     body['properties']['configuration']['ingress'] = None
     template = body['properties']['template']
     template['revisionSuffix'] = 'pipeline-' + str(int(time.time()))
-    template['containers'][0]['image'] = ('vtranslatorjpe43892.azurecr.io/videotranslator/tts@sha256:'
-        '4929b9c14f15bf0078cb31dc4d5796d909ddd277d801421ae7d0c7073221b67b')
+    template['containers'][0]['image'] = dotenv_values(ROOT/'secrets/azure-jp/.env')['TTS_IMAGE']
     template['containers'][0]['env'].append({'name': 'HF_HUB_DISABLE_XET', 'value': '1'})
     template['containers'][1]['image'] = dotenv_values(ROOT/'secrets/azure-jp/.env')['ENGINE_IMAGE']
     env = dotenv_values(ROOT/'secrets/azure-jp/engine.env')

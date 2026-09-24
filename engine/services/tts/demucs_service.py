@@ -66,7 +66,7 @@ def install(app, gpu_lock, media_path, unload):
                         stdout=log,stderr=log,env=env,start_new_session=True) as proc:
                         deadline=time.monotonic()+24*3600
                         while proc.poll() is None:
-                            if job['cancel'].is_set() or time.monotonic()>deadline:
+                            if job['cancel'].is_set() or (os.getenv('CLOUD_HEALTH_EXECUTION') != '1' and time.monotonic()>deadline):
                                 os.killpg(proc.pid,signal.SIGTERM)
                                 try:proc.wait(timeout=5)
                                 except subprocess.TimeoutExpired:

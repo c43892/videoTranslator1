@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
+from ..application.pricing import public_price
 from ..domain.enums import DomainError
 from ..domain.models import UploadSession
 
@@ -60,7 +61,7 @@ def install_conversation_routes(app, container, identity_dependency, http_error)
                 "firebase": container.settings.firebase_web_config,
                 "payment_mode": container.settings.payment_mode,
                 "payment_providers": list(container.gateways) if container.settings.auth_mode != "demo" and container.settings.profile != "test" else [],
-                "rate_cents_per_minute": container.settings.pricing.point_units_per_minute,
+                **public_price(container.funding.pricing.current()),
                 "max_upload_bytes": container.settings.max_upload_bytes,
                 "target_languages": ["zh", "en"]}
 

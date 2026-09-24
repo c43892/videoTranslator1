@@ -1,5 +1,6 @@
 import json
 import math
+import os
 import subprocess
 from pathlib import Path
 import numpy as np
@@ -10,6 +11,8 @@ RATE = 48000
 DEMUXERS = 'mov,matroska,webm,avi,mpegts,mpeg,flv,asf,ogg,wav,flac,mp3'
 
 def run(args, timeout=1800):
+    if timeout == 1800 and os.getenv('CLOUD_HEALTH_EXECUTION') == '1':
+        timeout = None  # Parent supervises CPU/I/O activity and owns cancellation.
     proc = subprocess.run(args, capture_output=True, timeout=timeout)
     if proc.returncode:
         # ffmpeg can print hostile filenames; bound error size.
@@ -65,72 +68,126 @@ def align(source, output, window, max_speedup):
     filters.extend([f'aresample={RATE}', f'apad=whole_len={frames}', f'atrim=end_sample={frames}'])
     ffmpeg(input_args(source) + ['-af', ','.join(filters), '-ar', RATE, '-ac', 2, '-c:a', 'pcm_s16le', output])
 
+# Five milliseconds at 48 kHz: smooth edit discontinuities without moving speech.
+SPLICE_FADE_FRAMES = round(.005 * RATE)
+
+
+def _edge_envelope(position, size, start, end):
+    """Raised-cosine gain inside [start, end), zero outside; bounded for tiny clips."""
+    indices = np.arange(position, position + size)
+    gain = ((indices >= start) & (indices < end)).astype(np.float32)
+    fade = min(SPLICE_FADE_FRAMES, (end - start) // 2)
+    if fade <= 1:
+        # A one/two-sample event cannot have an interior and two smooth edges.
+        return np.zeros(size, dtype=np.float32)
+    distance = np.minimum(indices - start, end - 1 - indices)
+    ramp = np.clip(distance / (fade - 1), 0, 1)
+    return gain * (.5 - .5 * np.cos(np.pi * ramp)).astype(np.float32)
+
+
+def _merge_ranges(ranges):
+    merged = []
+    for start, end in sorted(ranges):
+        if end <= start:
+            continue
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(end, merged[-1][1]))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _audible_bounds(audio, count):
+    """Find exact digital padding so the fade lands on speech, not padded silence."""
+    first, last = 0, count
+    while first < last:
+        audio.seek(first)
+        data = audio.read(min(RATE, last-first), dtype='float32', always_2d=True)
+        active = np.flatnonzero(np.any(data != 0, axis=1))
+        if len(active):
+            first += int(active[0]); break
+        first += len(data)
+        if not len(data):
+            return count, count
+    while last > first:
+        offset = max(first, last-RATE)
+        audio.seek(offset)
+        data = audio.read(last-offset, dtype='float32', always_2d=True)
+        active = np.flatnonzero(np.any(data != 0, axis=1))
+        if len(active):
+            last = offset + int(active[-1]) + 1; break
+        last = offset
+    return first, last
+
+
 def dialogue_timeline(segments, storage, output, duration, original=None, preserve_intervals=None):
-    """Keep source sound by default; replace only successfully dubbed windows."""
+    """Replace dubbed windows with 5 ms edge blends; keep absolute sample positions."""
     frames = round(duration * RATE)
     events = preserve_intervals or []
     if original is None and (events or any(s.render_status == 'original' for s in segments)):
         raise ValueError('Original dialogue is required for fallback/events')
+    translated = []
+    for segment in segments:
+        if segment.render_status != 'translated':
+            continue
+        info = sf.info(storage.path(segment.aligned_audio))
+        if info.samplerate != RATE or info.channels != 2:
+            raise ValueError('Aligned speech must be canonical stereo audio')
+        offset = round(segment.start * RATE)
+        if offset < 0 or offset + info.frames > frames + 2:
+            raise ValueError('Dialogue segment lies outside the video timeline')
+        translated.append((segment, offset, min(info.frames, frames-offset)))
+    # Merge adjacent/overlapping replacements: do not leak original words back
+    # into each internal join, or repeatedly attenuate overlapping windows.
+    replaced = _merge_ranges([(offset, offset+count) for _, offset, count in translated])
+    preserved = [(s.start, s.end) for s in segments if s.render_status == 'original']
+    preserved += [(e['start'], e['end']) for e in events]
+    keep = []
+    for start, end in preserved:
+        offset, last = round(start*RATE), round(end*RATE)
+        if offset < 0 or last > frames+2 or last < offset:
+            raise ValueError('Invalid original fallback/event interval')
+        keep.append((offset, min(last, frames)))
+    keep = _merge_ranges(keep)
     output.parent.mkdir(parents=True, exist_ok=True)
     with sf.SoundFile(output, 'w+', samplerate=RATE, channels=2, subtype='FLOAT') as out:
-        zero = np.zeros((RATE, 2), dtype=np.float32)
-        remaining = frames
-        while remaining:
-            size = min(remaining, RATE); out.write(zero[:size]); remaining -= size
-        if original is not None:
-            with sf.SoundFile(original) as source:
-                if source.samplerate != RATE or source.channels != 2:
-                    raise ValueError('Original dialogue must be canonical stereo audio')
-                out.seek(0); remaining = frames
-                while remaining:
-                    data = source.read(min(RATE, remaining), dtype='float32', always_2d=True)
-                    if not len(data):
-                        break
-                    out.write(data); remaining -= len(data)
-        translated = []
-        # Clear all replacement regions BEFORE adding any translated audio so
-        # overlapping translations accumulate instead of erasing one another.
-        for segment in segments:
-            if segment.render_status != 'translated':
-                continue
-            info = sf.info(storage.path(segment.aligned_audio))
-            if info.samplerate != RATE or info.channels != 2:
-                raise ValueError('Aligned speech must be canonical stereo audio')
-            offset = round(segment.start * RATE)
-            if offset < 0 or offset + info.frames > frames + 2:
-                raise ValueError('Dialogue segment lies outside the video timeline')
-            count = min(info.frames, frames - offset)
-            translated.append((segment, offset, count))
-            out.seek(offset); remaining = count
-            while remaining:
-                size = min(remaining, RATE); out.write(zero[:size]); remaining -= size
-        # Explicit sound events and unsuccessful utterances preserve source
-        # samples, including any overlap. Copy (do not sum) overlapping ranges.
-        preserved = [(s.start, s.end) for s in segments if s.render_status == 'original']
-        preserved += [(e['start'], e['end']) for e in events]
-        if original is not None and preserved:
-            with sf.SoundFile(original) as source:
-                for start, end in preserved:
-                    offset, last = round(start * RATE), round(end * RATE)
-                    if offset < 0 or last > frames + 2 or last < offset:
-                        raise ValueError('Invalid original fallback/event interval')
-                    source.seek(offset); out.seek(offset); remaining = min(last, frames) - offset
-                    while remaining:
-                        data = source.read(min(RATE, remaining), dtype='float32', always_2d=True)
-                        if not len(data):
-                            break
-                        out.write(data); remaining -= len(data)
+        # Stream one-second blocks to keep memory bounded for long videos.
+        source = sf.SoundFile(original) if original is not None else None
+        try:
+            if source and (source.samplerate != RATE or source.channels != 2):
+                raise ValueError('Original dialogue must be canonical stereo audio')
+            for position in range(0, frames, RATE):
+                size = min(RATE, frames-position)
+                data = np.zeros((size, 2), dtype=np.float32)
+                if source:
+                    chunk = source.read(size, dtype='float32', always_2d=True)
+                    data[:len(chunk)] = chunk
+                    gain = np.ones(size, dtype=np.float32)
+                    for start, end in replaced:
+                        if start < position+size and end > position:
+                            gain = np.minimum(gain, 1-_edge_envelope(position, size, start, end))
+                    for start, end in keep:
+                        if start < position+size and end > position:
+                            gain = np.maximum(gain, _edge_envelope(position, size, start, end))
+                    data *= gain[:, None]
+                out.write(data)
+        finally:
+            if source:
+                source.close()
         for segment, offset, count in translated:
             with sf.SoundFile(storage.path(segment.aligned_audio)) as dubbed:
-                position = offset; remaining = count
-                while remaining:
-                    data = dubbed.read(min(RATE, remaining), dtype='float32', always_2d=True)
+                first, last = _audible_bounds(dubbed, count)
+                dubbed.seek(0)
+                position = 0
+                while position < count:
+                    data = dubbed.read(min(RATE, count-position), dtype='float32', always_2d=True)
                     if not len(data):
                         raise ValueError('Synthesized audio is shorter than declared')
-                    out.seek(position)
+                    data *= _edge_envelope(position, len(data), first, last)[:, None]
+                    out.seek(offset+position)
                     previous = out.read(len(data), dtype='float32', always_2d=True)
-                    out.seek(position); out.write(previous + data)
-                    position += len(data); remaining -= len(data)
+                    out.seek(offset+position); out.write(previous+data)
+                    position += len(data)
 
 
 def mix(dialogue, music, effects, output, duration):

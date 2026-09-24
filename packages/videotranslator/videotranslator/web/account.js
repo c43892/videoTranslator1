@@ -57,11 +57,13 @@ export async function createAccount({config, api, t, changed, report}) {
       const me = await api('/me');
       if (currentGeneration !== generation) return;
       balance = me.balance_cents; lastRefresh = Date.now(); localize();
+      document.dispatchEvent(new CustomEvent('account-updated', {detail:{isAdmin:me.is_admin}}));
       document.dispatchEvent(new Event('balance-updated'));
     } catch (error) {if (currentGeneration === generation) {balance = null; localize(); report(error);}}
   }
   async function update(next) {
     if (user?.uid !== next?.uid) {paymentView('choose'); $('topup-dialog').close();}
+    document.dispatchEvent(new CustomEvent('account-updated', {detail:{isAdmin:false}}));
     generation++; user = next; balance = null; localize();
     try {await changed(next);}
     finally {if (next) {await refresh(); if (next.emailVerified) await paymentReturn();}}

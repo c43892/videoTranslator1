@@ -118,3 +118,68 @@ def test_worker_cancel_during_model_loading_does_not_start_pipeline(control, mon
     cloud_worker.process(identifier, Lock())
     result = control.get('/v1/jobs/' + identifier).json()
     assert result['status'] == 'cancelled' and result['outputs'] == {}
+
+
+def test_health_lease_renews_past_old_runtime_limit_and_cannot_resurrect(control, monkeypatch):
+    from videotranslator import cloud_worker
+    from videotranslator.domain import Cancelled
+    identifier, _ = submit(control, processing_profile='health-v1', max_runtime_seconds=1)
+    future = time.time() + 7200
+    with Session.begin() as db:
+        execution = db.get(CloudExecution, identifier)
+        execution.started = future - 7100
+        execution.deadline = future + 60
+        db.get(Job, execution.generation).status = 'running'
+    monkeypatch.setattr(cloud_worker.time, 'time', lambda: future)
+    cloud_worker.update(identifier, renew_lease=True)
+    with Session() as db:
+        assert db.get(CloudExecution, identifier).deadline == future + 180
+    assert control.get('/v1/jobs/' + identifier).json()['status'] == 'running'
+    with Session.begin() as db:
+        db.get(CloudExecution, identifier).deadline = future - 1
+    with pytest.raises(Cancelled):
+        cloud_worker.update(identifier, renew_lease=True)
+    assert control.get('/v1/jobs/' + identifier).json()['error'] == 'Worker heartbeat expired'
+
+
+@pytest.mark.parametrize('healthy', [True, False])
+def test_supervisor_runs_beyond_cap_but_stops_stalled_work(control, monkeypatch, healthy):
+    from videotranslator import cloud_worker
+    identifier, _ = submit(control, processing_profile='health-v1', max_runtime_seconds=1)
+    clock = [time.time()]
+    start = clock[0]
+    monkeypatch.setattr(cloud_worker.time, 'time', lambda: clock[0])
+    monkeypatch.setattr(cloud_worker.time, 'monotonic', lambda: clock[0])
+    class Lock:
+        def execute(self, *_): pass
+        def commit(self): pass
+    class Child:
+        pid = 42
+        def poll(self): return None
+    class Response:
+        status_code = 200
+        def json(self):
+            return {'status': 'ready', 'activity_seq': int(clock[0]) if healthy else 0}
+    monkeypatch.setattr(cloud_worker.httpx, 'get', lambda *a, **k: Response())
+    monkeypatch.setattr(cloud_worker.subprocess, 'Popen', lambda *a, **k: Child())
+    monkeypatch.setattr(cloud_worker.ProcessActivity, 'sample', lambda *_: False)
+    stopped = []
+    monkeypatch.setattr(cloud_worker, 'stop_child', lambda child: stopped.append(child))
+    def advance(_):
+        clock[0] += 60
+        if clock[0] - start >= 7200:
+            with Session.begin() as db:
+                execution = db.get(CloudExecution, identifier)
+                db.get(Job, execution.generation).status = 'completed'
+                execution.finished = clock[0]
+    monkeypatch.setattr(cloud_worker.time, 'sleep', advance)
+    cloud_worker.process(identifier, Lock())
+    with Session() as db:
+        execution = db.get(CloudExecution, identifier)
+        job = db.get(Job, execution.generation)
+        if healthy:
+            assert job.status == 'completed' and clock[0] - start >= 7200
+        else:
+            assert job.status == 'failed' and 'No step progress' in job.error
+            assert clock[0] - start < 1800
+    assert stopped

@@ -18,8 +18,8 @@ from videotranslator.domain.models import Payment, PaymentEvent, User, LedgerEnt
 from videotranslator.domain.pricing import quote_job
 
 
-@pytest.mark.parametrize("duration,cents", [(1,1),(6000,1),(6001,2),(60000,10),(60001,11),(90000,15),(1800000,300)])
-def test_default_price_is_ten_cents_per_minute_for_audio_and_video(duration, cents):
+@pytest.mark.parametrize("duration,cents", [(1,10),(30000,10),(30001,20),(60000,20),(60001,30),(90000,30),(90001,40),(600000,200),(1800000,600)])
+def test_default_price_is_twenty_cents_per_minute_for_audio_and_video(duration, cents):
     for media in ("audio", "video"):
         assert quote_job(Settings().pricing, duration, media).point_units == cents
 

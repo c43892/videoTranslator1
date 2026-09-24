@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from .domain.enums import StaleVersion
-from .domain.conversation import Conversation
+from .domain.conversation import Conversation, ConversationLog
 from .domain.downloads import DownloadTask, DownloadWorker
 from .domain.models import (
     CapacityCounter,
@@ -38,6 +38,7 @@ from .domain.models import (
     PaymentEnvironmentRecord,
     PaymentEvent,
     PricingConfig,
+    PricingState,
     UploadSession,
     User,
 )
@@ -49,6 +50,7 @@ _KINDS: dict[str, type[Document]] = {
     cls.COLLECTION: cls
     for cls in (
         Conversation,
+        ConversationLog,
         DownloadTask,
         DownloadWorker,
         User,
@@ -59,6 +61,7 @@ _KINDS: dict[str, type[Document]] = {
         PaymentEnvironmentRecord,
         PaymentEvent,
         PricingConfig,
+        PricingState,
         JobOutbox,
         InspectionOutbox,
         CostReservation,
@@ -187,6 +190,7 @@ class _OverlayTx:
 
 
 _ID_ATTRS: dict[str, tuple[str, ...]] = {
+    "conversation_logs": ("log_id",),
     "download_tasks": ("task_id",),
     "download_workers": ("worker_id",),
     "payment_environments": ("environment_id",),
@@ -198,6 +202,7 @@ _ID_ATTRS: dict[str, tuple[str, ...]] = {
     "payments": ("payment_id",),
     "payment_events": ("event_key",),
     "pricing_configs": ("pricing_version",),
+    "pricing_state": ("state_id",),
     "job_outbox": ("outbox_id",),
     "inspection_outbox": ("outbox_id",),
     "cost_reservations": ("reservation_id",),

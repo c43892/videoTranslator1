@@ -1,4 +1,5 @@
 import json
+import os
 import time
 from pathlib import Path
 from urllib.parse import urlparse
@@ -127,12 +128,14 @@ class IndexSynthesizer:
         self.config = config
 
     def tokenize(self, texts):
-        with httpx.Client(timeout=httpx.Timeout(120, read=self.config.tts_tokenize_timeout_seconds)) as client:
+        read_timeout = None if os.getenv('CLOUD_HEALTH_EXECUTION') == '1' else self.config.tts_tokenize_timeout_seconds
+        with httpx.Client(timeout=httpx.Timeout(120, read=read_timeout)) as client:
             data = require_success(client.post(self.config.tts_url + '/tokenize', json={'texts': texts}), 'IndexTTS2')
         return data['counts']
 
     def synthesize(self, segment, output):
-        with httpx.Client(timeout=httpx.Timeout(30, read=1800)) as client:
+        read_timeout = None if os.getenv('CLOUD_HEALTH_EXECUTION') == '1' else 1800
+        with httpx.Client(timeout=httpx.Timeout(30, read=read_timeout)) as client:
             response = client.post(self.config.tts_url + '/synthesize', json={
                 'text': segment.translation, 'speaker_audio': segment.speaker_reference,
                 'emotion_audio': segment.emotion_reference, 'output': output})

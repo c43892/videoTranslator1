@@ -1,4 +1,4 @@
-import {accountCopy} from './account-copy.js?v=20260923-stripe-env';
+import {accountCopy} from './account-copy.js?v=20260924-admin-pricing';
 import {historyCopy} from './history-copy.js';
 export const copy = {
 en: {

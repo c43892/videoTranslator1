@@ -24,6 +24,12 @@ from .storage import LocalStorage
 
 ACTIVE = ('queued', 'provisioning', 'running', 'cancel_requested')
 DONE = ('completed', 'completed_with_warnings')
+HEARTBEAT_LEASE_SECONDS = 180
+STARTUP_LEASE_SECONDS = 900
+
+
+def health_supervised(execution):
+    return execution.spec.get('processing_profile') == 'health-v1'
 
 
 class CloudExecution(Base):
@@ -87,7 +93,7 @@ def get_pair(db, identifier):
 
 
 def status(execution, job):
-    # A deadline remains authoritative even if both CPU and GPU restarted.
+    # For health-v1, deadline is a renewable worker lease, not a total runtime cap.
     expired = job.status in ACTIVE and time.time() >= execution.deadline
     warnings = []
     if job.status in DONE and (job.outputs or {}).get('manifest'):
@@ -97,7 +103,8 @@ def status(execution, job):
             warnings = json.loads(manifest.read_text()).get('warnings', [])
     return dict(id=execution.id, generation=execution.generation, spec=execution.spec, warnings=warnings,
                 status='failed' if expired else job.status, progress=job.progress,
-                stage=job.stage, error='Execution deadline exceeded' if expired else job.error,
+                stage=job.stage, error=(('Worker heartbeat expired' if execution.started else 'GPU startup unavailable')
+                    if health_supervised(execution) else 'Execution deadline exceeded') if expired else job.error,
                 outputs=job.outputs or {}, runtime_seconds=(
                     max(0, (execution.finished or time.time()) - execution.started) if execution.started else 0))
 
@@ -184,7 +191,8 @@ async def submit(identifier: uuid.UUID, request: Request):
             db.add(job)
             db.flush()
             execution = CloudExecution(id=identifier, generation=generation, spec=spec, created=now,
-                deadline=now + min(spec['max_runtime_seconds'], int(os.getenv('CLOUD_JOB_MAX_SECONDS', '1800'))),
+                deadline=now + (STARTUP_LEASE_SECONDS if spec['processing_profile'] == 'health-v1' else
+                    min(spec['max_runtime_seconds'], int(os.getenv('CLOUD_JOB_MAX_SECONDS', '1800')))),
                 started=0, finished=0)
             db.add(execution)
             db.flush()

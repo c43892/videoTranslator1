@@ -40,7 +40,9 @@ class Settings:
     docker_command: str = "docker"
     engine_container: str = "videotranslator-api-1"
     pricing: PricingConfig = field(default_factory=lambda: PricingConfig(
-        pricing_version="usd-cent-v1", point_units_per_minute=10, minimum_point_units=1))
+        pricing_version="usd-cent-v2", point_units_per_minute=20, minimum_point_units=10,
+        billing_increment_units=10, rounding="ceil_final_billing_increment"))
+    admin_user_ids: tuple[str, ...] = ()
     auth_mode: str = "firebase"
     firebase_web_config: dict = field(default_factory=dict)
     payment_mode: str = "disabled"
@@ -98,6 +100,8 @@ def settings_from_env() -> Settings:
         pricing_version=os.environ.get("PRICING_VERSION", base.pricing.pricing_version),
         point_units_per_minute=int(os.environ.get("POINT_UNITS_PER_MINUTE", base.pricing.point_units_per_minute)),
         minimum_point_units=int(os.environ.get("MINIMUM_POINT_UNITS", base.pricing.minimum_point_units)),
+        billing_increment_units=int(os.environ.get("BILLING_INCREMENT_UNITS", base.pricing.billing_increment_units)),
+        rounding=base.pricing.rounding,
     )
     cost = CostPolicy(
         gpu_starts_enabled=_bool("GPU_STARTS_ENABLED", True),
@@ -115,6 +119,7 @@ def settings_from_env() -> Settings:
         engine_backend=os.environ.get("ENGINE_BACKEND", "disabled"),
         docker_command=os.environ.get("DOCKER_COMMAND", "docker"),
         engine_container=os.environ.get("ENGINE_CONTAINER", "videotranslator-api-1"),
+        admin_user_ids=tuple(v.strip() for v in os.environ.get("ADMIN_USER_IDS", "").split(",") if v.strip()),
         auth_mode=os.environ.get("AUTH_MODE", "firebase"),
         firebase_web_config={key: os.environ.get(env, "") for key, env in {
             "apiKey": "FIREBASE_API_KEY", "authDomain": "FIREBASE_AUTH_DOMAIN",

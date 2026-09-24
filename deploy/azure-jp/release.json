@@ -1,0 +1,12 @@
+{
+  "public_url": "https://vidyi.cc",
+  "gpu_revision": "videotranslator-gpu--ready-1790221645",
+  "images": {
+    "control": "vtranslatorjpe43892.azurecr.io/videotranslator/control@sha256:ee1f1cc20f4023ee00530620351aebe4b745acc441b9f543ea6a335c9f7bf2da",
+    "engine": "vtranslatorjpe43892.azurecr.io/videotranslator/engine@sha256:4cf5c555d6f7019c9a44754ea08824cfe356d6cc1bdbaead7c27d3bb6c45a0c8",
+    "tts": "vtranslatorjpe43892.azurecr.io/videotranslator/tts@sha256:512ffe135fd52c8b5fbd72c4fd066a028368bfda11385634474847e950153122"
+  },
+  "gpu_min_replicas": 0,
+  "gpu_max_replicas": 1,
+  "payment_mode": "live"
+}

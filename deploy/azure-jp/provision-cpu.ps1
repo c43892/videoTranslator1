@@ -1,3 +1,4 @@
+param([switch]$ValidationAutoShutdown)
 $ErrorActionPreference = 'Stop'
 $project = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '../..')).Path
 $keyPath = Join-Path $project 'secrets/azure-jp-ed25519'
@@ -21,6 +22,10 @@ Invoke-Az network nsg rule create -g $group --nsg-name videotranslator-cpu-nsg -
 Invoke-Az network nsg rule create -g $group --nsg-name videotranslator-cpu-nsg -n deny-other-inbound --priority 4000 --source-address-prefixes '*' --destination-port-ranges '*' --access Deny --protocol '*' -o none
 Invoke-Az network vnet subnet create -g $group --vnet-name videotranslator-jpe-vnet -n cpu --address-prefixes 10.0.2.0/24 --network-security-group videotranslator-cpu-nsg -o none
 Invoke-Az vm create -g $group -n videotranslator-cpu -l japaneast --image Ubuntu2404 --size Standard_D2as_v4 --admin-username vtadmin --ssh-key-values "$keyPath.pub" --vnet-name videotranslator-jpe-vnet --subnet cpu --nsg videotranslator-cpu-nsg --public-ip-sku Standard --public-ip-address-dns-name vtranslator-jpe-43892 --storage-sku StandardSSD_LRS --os-disk-size-gb 64 --assign-identity --custom-data "$PSScriptRoot/cpu-cloud-init.yml" --tags purpose=videotranslator-sandbox validationBudgetUSD=20 -o json
-$shutdown = [DateTime]::UtcNow.AddHours(8).ToString('HHmm')
-Invoke-Az vm auto-shutdown -g $group -n videotranslator-cpu --time $shutdown -o none
-Write-Output "Validation VM automatic shutdown configured for $shutdown UTC."
+if ($ValidationAutoShutdown) {
+    $shutdown = [DateTime]::UtcNow.AddHours(8).ToString('HHmm')
+    Invoke-Az vm auto-shutdown -g $group -n videotranslator-cpu --time $shutdown -o none
+    Write-Output "Validation VM automatic shutdown configured for $shutdown UTC."
+} else {
+    Write-Output 'Always-on web VM: no automatic shutdown schedule created.'
+}

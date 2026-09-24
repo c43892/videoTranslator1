@@ -18,6 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg libsndfi
     && useradd --uid 10001 --create-home app && mkdir /data /models && chmod 1777 /data /models
 COPY --from=dependencies /opt/index-tts /opt/index-tts
 COPY engine/services/tts /opt/tts
+COPY engine/backend/videotranslator/runtime_health.py /opt/tts/runtime_health.py
 COPY deploy/azure-jp/patch-tts-cache.py /tmp/patch-tts-cache.py
 RUN python /tmp/patch-tts-cache.py && rm /tmp/patch-tts-cache.py
 ENV PYTHONPATH=/opt/index-tts PATH=/opt/index-tts/.venv/bin:$PATH \

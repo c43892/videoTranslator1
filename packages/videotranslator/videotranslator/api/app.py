@@ -70,6 +70,13 @@ class CreateSessionRequest(BaseModel):
     idempotency_key: str = Field(default="", max_length=100)
 
 
+class UpdatePricingRequest(BaseModel):
+    expected_version: str = Field(min_length=1, max_length=100)
+    rate_cents_per_minute: int = Field(strict=True, ge=1, le=10000)
+    minimum_cents: int = Field(strict=True, ge=1, le=10000)
+    billing_increment_cents: int = Field(strict=True, ge=1, le=10000)
+
+
 class PatchJobRequest(BaseModel):
     target_language: str
     expected_status_version: int
@@ -109,6 +116,26 @@ def create_app(container: Container) -> FastAPI:
             raise _http_error(EmailNotVerified("email verification required"))
         return identity
 
+    def admin_identity(identity=Depends(verified_identity)):
+        if identity.uid not in container.settings.admin_user_ids:
+            raise HTTPException(403, detail={"code": "forbidden"})
+        return identity
+
+    @app.get("/api/v1/admin/pricing")
+    def admin_pricing(identity=Depends(admin_identity)):
+        from ..application.pricing import public_price
+        return public_price(container.funding.pricing.current())
+
+    @app.put("/api/v1/admin/pricing")
+    def update_pricing(body: UpdatePricingRequest, identity=Depends(admin_identity)):
+        from ..application.pricing import public_price
+        try:
+            return public_price(container.funding.pricing.update(expected_version=body.expected_version,
+                rate=body.rate_cents_per_minute, minimum=body.minimum_cents,
+                increment=body.billing_increment_cents, actor=identity.uid))
+        except DomainError as exc:
+            raise _http_error(exc) from exc
+
     # -- helpers --------------------------------------------------------------
 
     def job_view(job: Job) -> dict:
@@ -124,6 +151,7 @@ def create_app(container: Container) -> FastAPI:
             user = tx.get(User, identity.uid)
         return {"user_id": identity.uid, "email": identity.email,
                 "email_verified": identity.email_verified,
+                "is_admin": identity.email_verified and identity.uid in container.settings.admin_user_ids,
                 "point_balance_units": user.point_balance_units if user else 0,
                 "balance_cents": user.point_balance_units if user else 0, "currency": "USD",
                 "billing_status": user.billing_status if user else "clear"}

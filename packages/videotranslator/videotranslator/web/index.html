@@ -5,7 +5,7 @@
   <meta name="theme-color" content="#f5f5f0">
   <title>VideoTranslator · Studio</title>
   <link rel="stylesheet" href="/assets/style.css?v=20260923-stripe-env">
-  <script type="module" src="/assets/app.js?v=20260924-cloud-preview"></script>
+  <script type="module" src="/assets/app.js?v=20260924-admin-pricing"></script>
 </head>
 <body>
   <aside class="sidebar">
@@ -35,7 +35,7 @@
         <div id="history-list" class="history-list"></div></div><section id="history-detail" class="history-detail" aria-live="polite" hidden></section>
       </section>
       <div class="conversation">
-        <section class="intro"><h1 data-i18n="simpleTitle">What would you like to translate?</h1><p class="intro-subtitle" data-i18n="simpleSubtitle">Add a YouTube link, video or audio file.</p><p class="intro-rate" data-i18n="rateNotice">Video and audio · $0.10 USD / minute</p></section>
+        <section class="intro"><h1 data-i18n="simpleTitle">What would you like to translate?</h1><p class="intro-subtitle" data-i18n="simpleSubtitle">Add a YouTube link, video or audio file.</p><p class="intro-rate" data-i18n="rateNotice">…</p></section>
         <div id="demo" class="notice" hidden data-i18n="demo">Preview environment · Translation processing is simulated.</div>
         <div id="verify-panel" class="notice" hidden><p data-i18n="email_not_verified">Please verify your email before continuing.</p><button id="resend-verification" class="chip" data-i18n="resendVerification">Resend verification</button><button id="check-verification" class="chip" data-i18n="checkVerification">I have verified</button><p id="verification-status" role="status"></p></div>
         <div id="messages" role="log" aria-live="polite" aria-relevant="additions"></div>
@@ -58,7 +58,7 @@
   <dialog id="topup-dialog" aria-labelledby="topup-title"><div class="dialog-heading"><h2 id="topup-title" data-i18n="topupTitle">Top up your balance</h2><button class="text-button" data-close-dialog="topup-dialog" data-i18n="close">Close</button></div>
     <p><span data-i18n="currentBalance">Current balance</span> · <strong id="topup-balance">—</strong></p>
     <div id="topup-form">
-      <p data-i18n="rateNotice">Video and audio · $0.10 USD / minute</p><p id="payment-unconfigured" class="notice" data-i18n="paymentsUnavailable" hidden>Payments are not configured yet.</p><p id="payment-sandbox" class="notice" data-i18n="paymentSandbox" hidden>Test payments only. No real money is charged.</p>
+      <p data-i18n="rateNotice">…</p><p id="payment-unconfigured" class="notice" data-i18n="paymentsUnavailable" hidden>Payments are not configured yet.</p><p id="payment-sandbox" class="notice" data-i18n="paymentSandbox" hidden>Test payments only. No real money is charged.</p>
       <label><span data-i18n="topupAmount">Amount</span><select id="topup-package"></select></label><label class="check-label"><input id="checkout-agree" type="checkbox"><span data-i18n="noRefundAgreement">I understand that top-ups are non-refundable.</span></label>
       <p data-i18n="failureCreditPolicy">Failed task charges return to your account balance for future use.</p><div class="payment-methods"><button id="pay-stripe" class="primary" disabled>Stripe</button><button id="pay-paypal" class="chip" disabled>PayPal</button></div>
     </div>

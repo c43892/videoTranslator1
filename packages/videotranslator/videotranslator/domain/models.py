@@ -228,6 +228,15 @@ class PricingConfig(Document):
     minimum_point_units: int = 1
     rounding: str = "ceil_final_point_unit"
     active_from: int = 0
+    billing_increment_units: int = 1  # Historical prices round to one ledger unit.
+    updated_by: str = ""
+
+
+@dataclass
+class PricingState(Document):
+    COLLECTION: ClassVar[str] = "pricing_state"
+    state_id: str = "active"
+    pricing_version: str = ""
 
 
 @dataclass

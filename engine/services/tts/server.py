@@ -55,10 +55,22 @@ def load_model():
 
 @asynccontextmanager
 async def lifespan(app):
+    stopped = threading.Event()
+    if os.getenv('CLOUD_HEALTH_EXECUTION') == '1':
+        from runtime_health import ProcessActivity, gpu_active
+        def monitor_activity():
+            process = ProcessActivity(os.getpid())
+            while not stopped.is_set():
+                cpu_active = process.sample()
+                if gpu_active() or cpu_active:
+                    STATE['activity_seq'] = STATE.get('activity_seq', 0) + 1
+                stopped.wait(10)
+        threading.Thread(target=monitor_activity, daemon=True).start()
     def warmup():
         with LOCK:load_model()
     threading.Thread(target=warmup, daemon=True).start()
     yield
+    stopped.set()
 
 
 app = FastAPI(lifespan=lifespan)

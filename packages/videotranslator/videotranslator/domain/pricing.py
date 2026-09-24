@@ -27,15 +27,18 @@ def probe_duration_to_ms(raw: str) -> int:
 
 
 def quote_job(config: PricingConfig, duration_ms: int, media_type: MediaType) -> JobQuote:
-    """§4.2: single ceiling at the final Point Unit boundary."""
+    """Round the total once to the configured billing increment, using integers."""
     if duration_ms <= 0:
         raise DomainError("duration must be positive", code=ErrorCode.MEDIA_INSPECTION_FAILED)
     if duration_ms > MEDIA_HARD_LIMIT_MS:
         raise DomainError(
             f"media exceeds the 30-minute limit ({duration_ms} ms)", code=ErrorCode.MEDIA_TOO_LONG
         )
-    units = -(-duration_ms * config.point_units_per_minute // 60_000)
-    units = max(units, config.minimum_point_units)
+    increment = config.billing_increment_units
+    if increment <= 0:
+        raise ValueError("billing increment must be positive")
+    numerator = max(duration_ms * config.point_units_per_minute, config.minimum_point_units * 60_000)
+    units = -(-numerator // (60_000 * increment)) * increment
     return JobQuote(duration_ms=duration_ms, point_units=units, pricing_version=config.pricing_version)
 
 

@@ -12,13 +12,27 @@ from pathlib import Path
 import httpx
 
 from .docker_engine import DockerEngineBackend, validate_output
-from .ffmpeg import _run
+from .ffmpeg import _run, ffprobe_json
 from ..domain.enums import BackendError, FailureClass
 from ..domain.models import BackendJobRef, BackendStatus
 
 
+def video_export_args(source):
+    """Preserve already browser-compatible streams instead of encoding twice."""
+    streams = ffprobe_json(source).get('streams', [])
+    video = next((s for s in streams if s.get('codec_type') == 'video'), {})
+    audio = next((s for s in streams if s.get('codec_type') == 'audio'), {})
+    video_args = (['-c:v', 'copy'] if video.get('codec_name') == 'h264' and
+                  video.get('pix_fmt') == 'yuv420p' else
+                  ['-c:v', 'libx264', '-preset', 'fast', '-crf', '20', '-pix_fmt', 'yuv420p'])
+    return ['-map', '0:v:0', '-map', '0:a:0', '-map', '0:s?', '-c:s', 'mov_text',
+            *video_args, '-c:a', 'copy' if audio.get('codec_name') == 'aac' else 'aac',
+            '-movflags', '+faststart']
+
+
 class PrivateEngineBackend:
     name = 'private-engine'
+    supervises_execution = True
     engine_id = staticmethod(DockerEngineBackend.engine_id)
 
     def __init__(self, storage, url, token, *, client=None):
@@ -93,13 +107,14 @@ class PrivateEngineBackend:
             return BackendStatus(state='succeeded', progress_percent=100, output_object_key=key,
                                  warnings=data.get('warnings', []), actual_gpu_seconds=data.get('runtime_seconds'))
         if state in ('failed', 'needs_review', 'waiting_configuration'):
-            return BackendStatus(state='failed', error_message=data.get('error') or 'Engine configuration is unavailable')
+            return BackendStatus(state='failed', error_message=data.get('error') or 'Engine configuration is unavailable',
+                                 actual_gpu_seconds=data.get('runtime_seconds'))
         if state in ('queued', 'provisioning'):
             return BackendStatus(state='provisioning', stage='starting_gpu')
         if state in ('running', 'cancel_requested'):
             return BackendStatus(state='running', stage=data.get('stage', ''), progress_percent=data.get('progress', 0))
         if state in ('not_found', 'cancelled'):
-            return BackendStatus(state=state)
+            return BackendStatus(state=state, actual_gpu_seconds=data.get('runtime_seconds'))
         raise BackendError('Unexpected private engine state')
 
     def _download_artifact(self, identifier, kind, destination):
@@ -137,9 +152,7 @@ class PrivateEngineBackend:
             if audio:
                 args += ['-vn', '-c:a', 'libmp3lame', '-b:a', '192k']
             else:
-                args += ['-map', '0:v:0', '-map', '0:a:0', '-map', '0:s?', '-c:s', 'mov_text',
-                         '-c:v', 'libx264', '-preset', 'fast', '-crf', '20', '-pix_fmt', 'yuv420p',
-                         '-c:a', 'aac', '-movflags', '+faststart']
+                args += video_export_args(raw)
             _run(args + [str(output)], what='browser-compatible export')
             validate_output(output, spec['duration_ms'], audio=audio)
             subtitle_size = 0

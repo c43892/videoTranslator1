@@ -220,6 +220,9 @@ class JobReconciler:
         )
 
     def _enforce_deadline(self, job: Job, now: int) -> int:
+        # This backend owns durable heartbeat/stall supervision, including legacy jobs.
+        if getattr(self._job_backend, "supervises_execution", False):
+            return 0
         if job.execution_deadline_at is None or now <= job.execution_deadline_at:
             return 0
         if job.status not in (JobStatus.PROVISIONING, JobStatus.RUNNING):

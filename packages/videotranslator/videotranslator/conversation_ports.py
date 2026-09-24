@@ -1,6 +1,6 @@
 """Replaceable conversation understanding and video acquisition boundaries."""
 from pathlib import Path
-from typing import Protocol
+from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict
 
@@ -12,6 +12,7 @@ class Interpretation(BaseModel):
     source_kind: str = ""
     youtube_url: str = ""
     target_language: str = ""
+    intent: Literal["product", "off_topic", "complaint"] = "product"
     # Optional clarification, never instructions to the execution layer.
     reply: str = ""
     mode: str = "guided"
