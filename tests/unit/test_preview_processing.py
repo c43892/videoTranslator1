@@ -29,6 +29,20 @@ def test_preview_cannot_charge_or_enqueue(container, tmp_path, profile):
     assert client.get('/api/v1/chat/config').json()['processing_available'] is False
 
 
+def test_local_full_private_engine_is_available(container, tmp_path, monkeypatch):
+    from unittest.mock import Mock
+    from videotranslator.adapters.private_engine import PrivateEngineBackend
+
+    backend = Mock(name='private-engine')
+    monkeypatch.setattr(PrivateEngineBackend, 'from_env', lambda storage: backend)
+    settings = replace(container.settings, profile='local-full', engine_backend='private',
+                       local_queue_db=str(tmp_path / 'queue.db'))
+    local = build_container(settings)
+    backend.check_ready.assert_called_once_with()
+    assert local.job_backend is backend
+    assert local.settings.processing_available is True
+
+
 def test_placeholder_recovery_returns_debit_once_and_blocks_download(container, user):
     give_balance(container, user.user_id, 1000)
     make_job_via_inspection(container)

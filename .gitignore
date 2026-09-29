@@ -6,7 +6,10 @@ vt-data/
 .env
 .env.*
 !.env.example
+!.env.local-gpu.example
+!.env.home-gpu.example
 *_credential.txt
 secrets/
+deploy/azure-jp/gpu-broker.env
 
 .playwright-mcp/

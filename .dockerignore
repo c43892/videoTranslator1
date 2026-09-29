@@ -1,6 +1,8 @@
 .git
 .env
 .env.*
+vt-data/
+.venv/
 secrets/
 *_credential.txt
 .codegraph

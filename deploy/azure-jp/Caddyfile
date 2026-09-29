@@ -5,7 +5,13 @@
         Referrer-Policy strict-origin-when-cross-origin
         -Server
     }
-    reverse_proxy web:8000
+    @gpu_workers path /api/v1/gpu-workers/*
+    handle @gpu_workers {
+        reverse_proxy gpu-broker:8082
+    }
+    handle {
+        reverse_proxy web:8000
+    }
 }
 
 www.vidyi.cc {

@@ -1,0 +1,138 @@
+name: videotranslator-local-gpu
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: videotranslator
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.local-gpu}
+      POSTGRES_DB: videotranslator
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U videotranslator -d videotranslator']
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  engine-control:
+    build:
+      context: .
+      dockerfile: deploy/azure-jp/Dockerfile.engine
+    image: videotranslator-local-engine:latest
+    restart: unless-stopped
+    command: [uvicorn, videotranslator.cloud_control:app, --host, '0.0.0.0', --port, '8080']
+    environment:
+      DATABASE_URL: postgresql+psycopg://videotranslator:${POSTGRES_PASSWORD}@postgres:5432/videotranslator
+      STORAGE_ROOT: /data
+      ENGINE_CONTROL_TOKEN: ${ENGINE_CONTROL_TOKEN:?Set ENGINE_CONTROL_TOKEN in .env.local-gpu}
+      CLOUD_ACCEPT_JOBS: ${CLOUD_ACCEPT_JOBS:-false}
+      CLOUD_VALIDATION_MAX_JOBS: '0'
+      CLOUD_JOB_MAX_SECONDS: '7200'
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      TRANSCRIPTION_PROVIDER: ${TRANSCRIPTION_PROVIDER:-whisper}
+      WHISPER_MODEL: ${WHISPER_MODEL:-whisper-1}
+    volumes:
+      - engine-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, "import os,httpx; r=httpx.get('http://127.0.0.1:8080/health',headers={'Authorization':'Bearer '+os.environ['ENGINE_CONTROL_TOKEN']},timeout=5); r.raise_for_status()"]
+      interval: 10s
+      timeout: 8s
+      retries: 30
+
+  engine-worker:
+    image: videotranslator-local-engine:latest
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://videotranslator:${POSTGRES_PASSWORD}@postgres:5432/videotranslator
+      STORAGE_ROOT: /data
+      TTS_URL: http://tts:8001
+      DEMUCS_URL: http://tts:8001
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      TRANSCRIPTION_PROVIDER: ${TRANSCRIPTION_PROVIDER:-whisper}
+      WHISPER_MODEL: ${WHISPER_MODEL:-whisper-1}
+      SEPARATION_PROVIDER: demucs
+    volumes:
+      - engine-data:/data
+    depends_on:
+      engine-control:
+        condition: service_healthy
+      tts:
+        condition: service_started
+
+  tts:
+    build:
+      context: .
+      dockerfile: deploy/azure-jp/Dockerfile.tts-source
+    image: videotranslator-local-tts:latest
+    restart: unless-stopped
+    gpus: all
+    shm_size: 2gb
+    volumes:
+      - engine-data:/data
+      - model-data:/models
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health',timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30m
+      retries: 3
+
+  studio:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.control
+    image: videotranslator-local-studio:latest
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:8090:8000'
+    environment:
+      APP_PROFILE: local-full
+      ENGINE_BACKEND: private
+      ENGINE_CONTROL_URL: http://engine-control:8080
+      ENGINE_CONTROL_TOKEN: ${ENGINE_CONTROL_TOKEN}
+      AUTH_MODE: ${AUTH_MODE:-demo}
+      PAYMENT_MODE: ${PAYMENT_MODE:-disabled}
+      GPU_STARTS_ENABLED: ${GPU_STARTS_ENABLED:-false}
+      MAX_ACTIVE_GPU_JOBS: ${MAX_ACTIVE_GPU_JOBS:-1}
+      STORE_PATH: /data/studio.db
+      LOCAL_STORAGE_DIR: /data/objects
+      LOCAL_QUEUE_DB: /data/inspection.db
+      LOCAL_STORAGE_SIGNING_SECRET: ${LOCAL_STORAGE_SIGNING_SECRET:?Set LOCAL_STORAGE_SIGNING_SECRET in .env.local-gpu}
+      PUBLIC_APP_URL: http://localhost:8090
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      CHAT_MODEL: ${CHAT_MODEL:-deepseek-chat}
+      YOUTUBE_DOWNLOAD_MODE: direct
+      FIREBASE_API_KEY: ${FIREBASE_API_KEY:-}
+      FIREBASE_AUTH_DOMAIN: ${FIREBASE_AUTH_DOMAIN:-}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
+      FIREBASE_APP_ID: ${FIREBASE_APP_ID:-}
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/firebase-admin.json
+      STRIPE_SANDBOX_SECRET_KEY: ${STRIPE_SANDBOX_SECRET_KEY:-}
+      STRIPE_SANDBOX_WEBHOOK_SECRET: ${STRIPE_SANDBOX_WEBHOOK_SECRET:-}
+      PAYMENT_SANDBOX_STORE_PATH: /data/store-stripe-sandbox.db
+      PAYMENT_LIVE_STORE_PATH: /data/store-stripe-live.db
+      PAYMENT_SANDBOX_QUEUE_PATH: /data/inspection-queue-sandbox.db
+      PAYMENT_LIVE_QUEUE_PATH: /data/inspection-queue-live.db
+      PRICING_VERSION: ${PRICING_VERSION:-usd-cent-v2}
+      POINT_UNITS_PER_MINUTE: ${POINT_UNITS_PER_MINUTE:-20}
+      MINIMUM_POINT_UNITS: ${MINIMUM_POINT_UNITS:-10}
+      BILLING_INCREMENT_UNITS: ${BILLING_INCREMENT_UNITS:-10}
+    volumes:
+      - ./vt-data:/data
+      - ./secrets:/run/secrets:ro
+    depends_on:
+      engine-control:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  engine-data:
+  model-data:

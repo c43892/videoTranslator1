@@ -12,6 +12,27 @@ from videotranslator.config import settings
 from videotranslator.db import Base, engine, Session, Job
 from videotranslator.storage import LocalStorage
 
+
+@pytest.mark.parametrize('reverse,expected', [('true', 'WHERE FALSE'),
+                                             ('false', "WHERE j.status IN")])
+def test_scaler_view_switches_off_for_reverse_gpu(monkeypatch, reverse, expected):
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+    from videotranslator import cloud_control
+    statements = []
+    class Connection:
+        def execute(self, statement):
+            statements.append(str(statement))
+    @contextmanager
+    def begin():
+        yield Connection()
+    monkeypatch.setenv('REVERSE_GPU_ENABLED', reverse)
+    monkeypatch.setattr(cloud_control, 'init_db', lambda: None)
+    monkeypatch.setattr(cloud_control, 'engine', SimpleNamespace(
+        dialect=SimpleNamespace(name='postgresql'), begin=begin))
+    cloud_control.initialize()
+    assert expected in statements[0]
+
 TOKEN = 'test-private-control-token-32-characters'
 
 

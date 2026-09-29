@@ -1,4 +1,5 @@
 """Local separation adapter; shared GPU service owns model residency."""
+import os
 import time
 import httpx
 from .domain import Stems, Cancelled, ProviderError
@@ -11,7 +12,11 @@ class DemucsSeparator:
 
     def separate(self, audio, prefix, checkpoint, remote, check_cancel):
         base = self.config.demucs_url.rstrip('/')
-        with httpx.Client(timeout=30) as client:
+        token = os.environ.get('GPU_BROKER_INTERNAL_TOKEN', '')
+        headers = {'Authorization': 'Bearer ' + token} if token else {}
+        if token and os.environ.get('CLOUD_ENGINE_GENERATION'):
+            headers['X-Engine-Generation'] = os.environ['CLOUD_ENGINE_GENERATION']
+        with httpx.Client(timeout=30, headers=headers) as client:
             check_cancel()
             state = require_success(client.post(base+'/separations', json={
                 'audio': audio, 'prefix': prefix+'/demucs', 'model': self.config.demucs_model,

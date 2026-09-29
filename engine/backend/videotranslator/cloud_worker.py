@@ -1,7 +1,8 @@
-"""Single-job GPU worker with a supervised child and renewable health lease.
+"""Cloud CPU engine worker with a supervised child and renewable health lease.
 
-No Redis message is used as the scaling signal. PostgreSQL retains queued AND
-running work. A crashed attempt fails closed; a user retry gets a new identity.
+PostgreSQL retains queued and running work. Demucs and IndexTTS2 are delegated
+through the reverse GPU broker; all other pipeline stages run here. A crashed
+attempt fails closed, and a user retry gets a new identity.
 """
 import os
 import signal
@@ -164,7 +165,8 @@ def process(identifier, lock):
                     update(identifier, status='running', stage='prepare', heartbeat=time.time())
                     child = subprocess.Popen([sys.executable, '-m', 'videotranslator.cloud_worker', '--execute', identifier],
                                              start_new_session=True, env=os.environ | {
-                                                 'CLOUD_HEALTH_EXECUTION': '1' if supervised else '0'})
+                                                 'CLOUD_HEALTH_EXECUTION': '1' if supervised else '0',
+                                                 'CLOUD_ENGINE_GENERATION': execution.generation})
                     if supervised:
                         activity = ProcessActivity(child.pid)
             time.sleep(2)

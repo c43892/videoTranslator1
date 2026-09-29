@@ -67,12 +67,11 @@ class Settings:
 
     @property
     def processing_available(self) -> bool:
-        # Both local profiles still use simulated heavy models. Only the test
-        # profile may exercise charging with those models.
+        # The preview cannot queue work; local-full requires a real engine.
         if self.profile == "local-ui":
             return False
         if self.profile == "local-full":
-            return self.engine_backend == "docker"
+            return self.engine_backend in {"docker", "private"}
         return True
 
 

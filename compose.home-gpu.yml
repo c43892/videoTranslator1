@@ -1,0 +1,42 @@
+name: videotranslator-home-gpu
+services:
+  tts:
+    build:
+      context: .
+      dockerfile: deploy/azure-jp/Dockerfile.tts-source
+    image: videotranslator-local-tts:latest
+    restart: unless-stopped
+    gpus: all
+    shm_size: 2gb
+    volumes:
+      - task-data:/data
+      - model-data:/models
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health',timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30m
+      retries: 3
+  agent:
+    build:
+      context: .
+      dockerfile: deploy/home-gpu-worker/Dockerfile
+    image: videotranslator-home-gpu-agent:latest
+    restart: unless-stopped
+    gpus: all
+    environment:
+      GPU_AGENT_SERVER_URL: ${GPU_AGENT_SERVER_URL:-https://vidyi.cc}
+      GPU_WORKER_TOKEN: ${GPU_WORKER_TOKEN:?Set a dedicated GPU_WORKER_TOKEN}
+      GPU_AGENT_TTS_URL: http://tts:8001
+    volumes:
+      - task-data:/data
+    depends_on:
+      tts:
+        condition: service_started
+volumes:
+  task-data:
+    external: true
+    name: ${GPU_TASK_VOLUME:-videotranslator-local-gpu_engine-data}
+  model-data:
+    external: true
+    name: ${GPU_MODEL_VOLUME:-videotranslator-local-gpu_model-data}

@@ -82,6 +82,10 @@ def build_container(settings: Settings | None = None) -> Container:
                 job_backend = DockerEngineBackend(storage, docker=settings.docker_command,
                                                  container=settings.engine_container)
                 job_backend.check_ready()
+            elif settings.engine_backend == "private":
+                from .adapters.private_engine import PrivateEngineBackend
+                job_backend = PrivateEngineBackend.from_env(storage)
+                job_backend.check_ready()
             else:
                 job_backend = UnavailableJobBackend()
             inspection_backend = LocalCpuInspectionBackend(settings.local_queue_db)

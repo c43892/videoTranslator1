@@ -1,11 +1,17 @@
-# Azure Japan East validation deployment
+# Azure Japan East deployment
+
+The cloud CPU / outbound home GPU architecture is live as of 2026-09-29 and is
+described in [the reverse GPU deployment guide](../../docs/REVERSE_GPU_DEPLOYMENT.md).
+The T4 Container App revision is inactive and retained for rollback. The older T4
+instructions below document the previous validation deployment.
 
 YouTube imports can now use an outbound-only Windows home worker. See
 [home worker deployment and validation](../../docs/HOME_DOWNLOAD_WORKER.md) and
 [Windows installation](../home-download-worker/README.md). The current deployment
 uses `YOUTUBE_DOWNLOAD_MODE=home-worker`; keep its private credentials in `studio.env`.
 
-This directory is the new `azure-jp-t4` path. The existing local Compose deployment
+This directory retains the `azure-jp-t4` application profile name for compatibility.
+The existing local Compose deployment
 and Stripe environment switch remain available. Do not use `deploy/azure/` (the
 historical Azure ML deployment) for this architecture.
 
@@ -41,7 +47,8 @@ databases and local model files are excluded.
 - `Dockerfile.tts-pinned`: pins auxiliary model revisions to the local model cache.
   Text-normalizer and Numba caches use writable directories under `/tmp`.
 
-All new runtime images use UID 10001. The GPU container must be first in ACA.
+All new runtime images use UID 10001. The old T4 Container App required the GPU
+container to be first; the reverse GPU deployment runs GPU containers on host machines.
 
 ## CPU persistence and private control
 
@@ -52,8 +59,8 @@ share, mounted with UID/GID 10001 and restrictive ownership. The GPU mounts the
 same share at `/data`; model files use the separate `models` share.
 
 Use `engine.env` for the worker database URL, private API bearer token and external
-provider credentials. `studio.env` contains **only sandbox Stripe keys**, the cloud
-webhook signing secret, Firebase web configuration and the same private API token.
+provider credentials. `studio.env` contains the configured Stripe mode's credentials,
+the cloud webhook signing secret, Firebase web configuration and the same private API token.
 Mount Firebase Admin credentials read-only. Assign Blob Data Contributor to the
 CPU managed identity and AcrPull to the CPU/GPU identities. Registry admin password
 authentication stays disabled.
@@ -109,10 +116,10 @@ On 2026-09-24 the user authorized continuous web operation. The CPU VM's daily
 the website as GPU cleanup. `provision-cpu.ps1` defaults to no shutdown schedule;
 its `-ValidationAutoShutdown` switch is only for explicitly time-limited validation.
 
-GPU scale remains min=0/max=1 with durable queued/running work as its trigger.
-Verification found zero replicas while idle. GPU startup, model loading, processing
-and cooldown can consume billable replica time; CPU, disks, registry, storage and
-traffic charges are separate. Existing application GPU admission budgets remain.
+The previous T4 revision had min=0/max=1 with durable queued/running work as its
+trigger. It is inactive after the reverse GPU cutover, so its replicas cannot run.
+CPU, disks, registry, storage and traffic charges remain. Existing application GPU
+admission budgets remain.
 Budget alerts are not spending caps, and the earlier US$20 validation allowance
 does not cover indefinite web operation newly authorized by the user.
 

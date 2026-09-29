@@ -1,7 +1,7 @@
 """Private cloud control API. CPU-only; durable jobs are the GPU scaling signal.
 
 The legacy local API and Celery worker are deliberately independent of this entrypoint.
-Run one control process on the CPU host; mount the same /data share as the GPU app.
+Run one control process on the CPU host; the CPU engine and GPU broker share /data.
 """
 import base64
 import hmac
@@ -69,11 +69,13 @@ def authorize(request: Request):
 def initialize():
     init_db()
     if engine.dialect.name == 'postgresql':
+        reverse_gpu = os.getenv('REVERSE_GPU_ENABLED', 'false').lower() == 'true'
+        predicate = "FALSE" if reverse_gpu else """j.status IN ('queued','provisioning','running','cancel_requested')
+                AND e.deadline > EXTRACT(EPOCH FROM NOW())"""
         with engine.begin() as db:
-            db.execute(text("""CREATE OR REPLACE VIEW gpu_runnable_work AS
+            db.execute(text(f"""CREATE OR REPLACE VIEW gpu_runnable_work AS
                 SELECT e.id FROM cloud_executions e JOIN jobs j ON j.id=e.generation
-                WHERE j.status IN ('queued','provisioning','running','cancel_requested')
-                AND e.deadline > EXTRACT(EPOCH FROM NOW())"""))
+                WHERE {predicate}"""))
 
 
 @asynccontextmanager

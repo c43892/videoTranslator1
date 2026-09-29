@@ -129,13 +129,21 @@ class IndexSynthesizer:
 
     def tokenize(self, texts):
         read_timeout = None if os.getenv('CLOUD_HEALTH_EXECUTION') == '1' else self.config.tts_tokenize_timeout_seconds
-        with httpx.Client(timeout=httpx.Timeout(120, read=read_timeout)) as client:
+        token = os.environ.get('GPU_BROKER_INTERNAL_TOKEN', '')
+        headers = {'Authorization': 'Bearer ' + token} if token else {}
+        if token and os.environ.get('CLOUD_ENGINE_GENERATION'):
+            headers['X-Engine-Generation'] = os.environ['CLOUD_ENGINE_GENERATION']
+        with httpx.Client(timeout=httpx.Timeout(120, read=read_timeout), headers=headers) as client:
             data = require_success(client.post(self.config.tts_url + '/tokenize', json={'texts': texts}), 'IndexTTS2')
         return data['counts']
 
     def synthesize(self, segment, output):
         read_timeout = None if os.getenv('CLOUD_HEALTH_EXECUTION') == '1' else 1800
-        with httpx.Client(timeout=httpx.Timeout(30, read=read_timeout)) as client:
+        token = os.environ.get('GPU_BROKER_INTERNAL_TOKEN', '')
+        headers = {'Authorization': 'Bearer ' + token} if token else {}
+        if token and os.environ.get('CLOUD_ENGINE_GENERATION'):
+            headers['X-Engine-Generation'] = os.environ['CLOUD_ENGINE_GENERATION']
+        with httpx.Client(timeout=httpx.Timeout(30, read=read_timeout), headers=headers) as client:
             response = client.post(self.config.tts_url + '/synthesize', json={
                 'text': segment.translation, 'speaker_audio': segment.speaker_reference,
                 'emotion_audio': segment.emotion_reference, 'output': output})

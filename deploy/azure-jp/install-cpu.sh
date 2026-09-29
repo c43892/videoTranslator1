@@ -5,7 +5,7 @@ source_dir=/home/vtadmin/azure-deploy
 deploy_dir=/srv/videotranslator
 install -d -m 0755 "$deploy_dir" "$deploy_dir/secrets/postgres-tls" /mnt/videotranslator-data
 install -d -m 0700 /etc/smbcredentials
-for name in .env studio.env engine.env postgres.env; do
+for name in .env studio.env engine.env gpu-broker.env postgres.env; do
   install -m 0600 "$source_dir/$name" "$deploy_dir/$name"
 done
 for name in compose.cpu.yml Caddyfile pg_hba.conf registry-login.py; do
