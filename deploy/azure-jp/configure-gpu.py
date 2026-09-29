@@ -37,6 +37,7 @@ GRANT CONNECT ON DATABASE videotranslator TO gpuworker, gpu_scaler;
 GRANT USAGE ON SCHEMA public TO gpuworker, gpu_scaler;
 GRANT SELECT, UPDATE ON jobs, cloud_executions TO gpuworker;
 GRANT SELECT ON gpu_workers TO gpuworker;
+GRANT SELECT, INSERT, UPDATE ON gpu_provider_workers TO gpuworker;
 GRANT SELECT ON gpu_runnable_work TO gpu_scaler;
 """ % (state['worker_password'], state['scaler_password'])
     subprocess.run(['ssh', '-i', str(ROOT/'secrets/azure-jp-ed25519'),
@@ -55,7 +56,12 @@ GRANT SELECT ON gpu_runnable_work TO gpu_scaler;
     template['revisionSuffix'] = 'pipeline-' + str(int(time.time()))
     template['containers'][0]['image'] = dotenv_values(ROOT/'secrets/azure-jp/.env')['TTS_IMAGE']
     template['containers'][0]['env'].append({'name': 'HF_HUB_DISABLE_XET', 'value': '1'})
-    template['containers'][1]['image'] = dotenv_values(ROOT/'secrets/azure-jp/.env')['ENGINE_IMAGE']
+    engine_image = (sys.argv[1] if len(sys.argv) == 2 else
+                    dotenv_values(ROOT/'secrets/azure-jp/.env')['ENGINE_IMAGE'])
+    expected_prefix = 'vtranslatorjpe43892.azurecr.io/videotranslator/engine@sha256:'
+    if not engine_image.startswith(expected_prefix) or len(engine_image) != len(expected_prefix) + 64:
+        raise ValueError('Use the immutable project engine image digest')
+    template['containers'][1]['image'] = engine_image
     env = dotenv_values(ROOT/'secrets/azure-jp/engine.env')
     for name in ('DEEPSEEK_MODEL','DEEPSEEK_BASE_URL','SEPARATION_PROVIDER','DEMUCS_MODEL','DEMUCS_SEGMENT_SECONDS','TTS_MAX_TEXT_TOKENS'):
         if name in env:
