@@ -30,6 +30,7 @@
             {"name":"TTS_URL","value":"http://localhost:8001"},
             {"name":"TTS_TOKENIZE_TIMEOUT_SECONDS","value":"600"},
             {"name":"DEMUCS_URL","value":"http://localhost:8001"},
+            {"name":"GPU_PROVIDER","value":"azure_t4"},
             {"name":"STORAGE_ROOT","value":"/data"}
           ],
           "volumeMounts": [{"volumeName":"data","mountPath":"/data"}]

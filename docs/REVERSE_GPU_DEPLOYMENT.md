@@ -3,10 +3,12 @@
 ## Deployed status (2026-09-29)
 
 The Japan East CPU VM serves `https://vidyi.cc` with Studio, engine control, the
-CPU engine worker, PostgreSQL and the GPU broker. The Azure T4 Container App
-revision is inactive and retained for rollback. One Windows RTX 4060 Ti host is
-registered through outbound HTTPS. The public site reports processing available,
-Firebase sign-in and the existing live payment mode. New job admissions are on.
+CPU engine worker, PostgreSQL and the GPU broker. One Windows RTX 4060 Ti host is
+registered through outbound HTTPS. The Azure T4 Container App is an active fallback
+provider with min 0/max 1. The public site reports processing available, Firebase
+sign-in and the existing live payment mode. New job admissions are on.
+The active fallback revision is `videotranslator-gpu--hybrid-1d77ff`; both workers
+use engine digest `sha256:1d77ff2a16fcd3cd49d85769e7669bf0970444c1dc4a429e16ed7b12ec9ba7ad`.
 The original `azure-jp-t4` profile identifier remains in Studio for compatibility;
 GPU execution is selected by the new worker and broker configuration, not that
 display identifier.
@@ -44,6 +46,22 @@ another host claims it. More than one host can register, though the current clou
 engine runs one whole video at a time because it holds a deployment-wide advisory
 lock. Multiple GPU hosts therefore provide failover and task assignment; they do
 not yet translate multiple videos simultaneously.
+
+## Provider priority and fallback
+
+`GPU_PROVIDER_MODE=hybrid` makes the durable scheduler prefer an online outbound
+GPU host. A job receives a permanent `gpu_provider` assignment when a worker claims
+it. While any local host has sent a ready heartbeat within 30 seconds, unassigned
+jobs are invisible to the Azure scaler and the CPU worker claims them for `local`.
+When no local host is ready, queued unassigned jobs appear in `gpu_runnable_work`,
+which wakes the Azure T4 worker and assigns them to `azure_t4`. An assigned Azure
+job remains visible to the scaler until it is terminal, even if a local host returns.
+This prevents duplicate execution and keeps Azure from scaling down mid-job.
+
+The deployment-wide advisory lock still processes one whole video at a time. The
+T4 provides availability when local GPUs are offline; it is not a parallel spillover
+worker while a local video is already running. A provider failure after a job starts
+fails that attempt closed, and a retry uses provider availability at retry time.
 
 ## Private configuration
 
@@ -96,7 +114,7 @@ The agent is deliberately HTTPS-only. It exposes no listening port.
    `CLOUD_ACCEPT_JOBS=false`) and let any queued or active Azure T4 job finish.
    Confirm the PostgreSQL `gpu_runnable_work` view has no rows before starting the
    CPU engine worker. This prevents simultaneous old and new execution.
-3. Set `REVERSE_GPU_ENABLED=true` in the CPU VM's private Compose `.env` and
+3. Set `REVERSE_GPU_ENABLED=true` and `GPU_PROVIDER_MODE=local_only` in the CPU VM's private Compose `.env` and
    recreate `engine-control` with the new engine image. It changes the existing
    `gpu_runnable_work` view to report no T4 work, so the Container App's existing
    zero-minimum scaler returns to zero without Azure control-plane credentials.
@@ -127,11 +145,17 @@ T4 revision/scaler, set `REVERSE_GPU_ENABLED=false` and recreate engine-control 
 restore the scaler view, verify it has capacity, and re-enable admissions. Never allow
 both engine workers to execute against the same database at once.
 
-If a home GPU is offline, broker health becomes unavailable and new jobs wait in
-the cloud worker's provisioning stage; the cloud site, imports and CPU services
-remain online. A host that loses a lease stops publishing. The web job may fail
-after its health deadline, and the user can retry as a new attempt. Large audio
-transfers use the home's upload connection and may affect total processing time.
+To enable Azure fallback after the local-only cutover, deploy the same immutable
+engine image to both workers, set `GPU_PROVIDER=local` on the CPU engine worker and
+`GPU_PROVIDER=azure_t4` on the Container App worker, then change
+`GPU_PROVIDER_MODE=hybrid` and recreate engine control. Keep the T4 revision active
+with min 0/max 1 and its existing `gpu_runnable_work` scaler.
+
+If all home GPUs are offline before a job is claimed, Azure wakes and handles the
+job. A host that loses a lease after its job starts stops publishing; that attempt
+fails closed instead of moving mid-run between providers. The user can retry as a
+new attempt. Large audio transfers use the home's upload connection and may affect
+total processing time.
 
 Only `/api/v1/gpu-workers/*` is publicly proxied to the broker. Keep its `/health`,
 `/tokenize`, `/synthesize`, `/separations` and PostgreSQL ports on the private

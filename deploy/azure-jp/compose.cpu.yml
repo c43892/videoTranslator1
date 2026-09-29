@@ -45,6 +45,7 @@ services:
       CLOUD_ACCEPT_JOBS: ${CLOUD_ACCEPT_JOBS:-false}
       CLOUD_VALIDATION_MAX_JOBS: ${CLOUD_VALIDATION_MAX_JOBS:-1}
       REVERSE_GPU_ENABLED: ${REVERSE_GPU_ENABLED:-false}
+      GPU_PROVIDER_MODE: ${GPU_PROVIDER_MODE:-local_only}
     command: [uvicorn, videotranslator.cloud_control:app, --host, '0.0.0.0', --port, '8080']
     volumes: ['/mnt/videotranslator-data:/data']
     depends_on:
@@ -58,6 +59,7 @@ services:
     environment:
       STORAGE_ROOT: /data
       GPU_BROKER_INTERNAL_TOKEN: ${GPU_BROKER_INTERNAL_TOKEN:?Set GPU_BROKER_INTERNAL_TOKEN}
+      GPU_PROVIDER: local
     command: [uvicorn, videotranslator.gpu_broker:app, --host, '0.0.0.0', --port, '8082']
     volumes: ['/mnt/videotranslator-data:/data']
     depends_on:

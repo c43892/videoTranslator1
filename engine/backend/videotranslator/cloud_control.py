@@ -41,6 +41,7 @@ class CloudExecution(Base):
     deadline: Mapped[float] = mapped_column(Float)
     started: Mapped[float] = mapped_column(Float, default=0)
     finished: Mapped[float] = mapped_column(Float, default=0)
+    gpu_provider: Mapped[str] = mapped_column(String(32), default='')
 
 
 class Spec(BaseModel):
@@ -69,10 +70,33 @@ def authorize(request: Request):
 def initialize():
     init_db()
     if engine.dialect.name == 'postgresql':
-        reverse_gpu = os.getenv('REVERSE_GPU_ENABLED', 'false').lower() == 'true'
-        predicate = "FALSE" if reverse_gpu else """j.status IN ('queued','provisioning','running','cancel_requested')
+        legacy_reverse = os.getenv('REVERSE_GPU_ENABLED', 'false').lower() == 'true'
+        mode = os.getenv('GPU_PROVIDER_MODE') or ('local_only' if legacy_reverse else 'azure_t4')
+        if mode not in ('azure_t4', 'local_only', 'hybrid'):
+            raise RuntimeError('GPU_PROVIDER_MODE must be azure_t4, local_only, or hybrid')
+        active = """j.status IN ('queued','provisioning','running','cancel_requested')
                 AND e.deadline > EXTRACT(EPOCH FROM NOW())"""
+        if mode == 'azure_t4':
+            predicate = active
+        elif mode == 'local_only':
+            predicate = 'FALSE'
+        else:
+            predicate = active + """ AND (
+                e.gpu_provider = 'azure_t4'
+                OR (e.gpu_provider = '' AND j.status = 'queued' AND NOT EXISTS (
+                    SELECT 1 FROM gpu_workers w
+                    WHERE w.ready = 1
+                      AND w.last_seen > EXTRACT(EPOCH FROM NOW()) - 30
+                )))"""
         with engine.begin() as db:
+            db.execute(text("""CREATE TABLE IF NOT EXISTS gpu_workers (
+                id VARCHAR(64) PRIMARY KEY,
+                last_seen DOUBLE PRECISION NOT NULL DEFAULT 0,
+                ready INTEGER NOT NULL DEFAULT 0,
+                activity_seq INTEGER NOT NULL DEFAULT 0
+            )"""))
+            db.execute(text("""ALTER TABLE cloud_executions
+                ADD COLUMN IF NOT EXISTS gpu_provider VARCHAR(32) NOT NULL DEFAULT ''"""))
             db.execute(text(f"""CREATE OR REPLACE VIEW gpu_runnable_work AS
                 SELECT e.id FROM cloud_executions e JOIN jobs j ON j.id=e.generation
                 WHERE {predicate}"""))
@@ -103,7 +127,8 @@ def status(execution, job):
         manifest = storage.path(job.outputs['manifest'])
         if manifest.is_relative_to(storage.path(f'jobs/{execution.generation}')) and manifest.is_file():
             warnings = json.loads(manifest.read_text()).get('warnings', [])
-    return dict(id=execution.id, generation=execution.generation, spec=execution.spec, warnings=warnings,
+    return dict(id=execution.id, generation=execution.generation, gpu_provider=execution.gpu_provider,
+                spec=execution.spec, warnings=warnings,
                 status='failed' if expired else job.status, progress=job.progress,
                 stage=job.stage, error=(('Worker heartbeat expired' if execution.started else 'GPU startup unavailable')
                     if health_supervised(execution) else 'Execution deadline exceeded') if expired else job.error,
@@ -195,7 +220,7 @@ async def submit(identifier: uuid.UUID, request: Request):
             execution = CloudExecution(id=identifier, generation=generation, spec=spec, created=now,
                 deadline=now + (STARTUP_LEASE_SECONDS if spec['processing_profile'] == 'health-v1' else
                     min(spec['max_runtime_seconds'], int(os.getenv('CLOUD_JOB_MAX_SECONDS', '1800')))),
-                started=0, finished=0)
+                started=0, finished=0, gpu_provider='')
             db.add(execution)
             db.flush()
             return status(execution, job)

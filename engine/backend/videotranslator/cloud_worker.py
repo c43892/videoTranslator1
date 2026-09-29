@@ -21,6 +21,37 @@ from .domain import Cancelled
 from .storage import LocalStorage
 
 LOCK_ID = 24299694758483269
+LOCAL_PROVIDER = 'local'
+AZURE_PROVIDER = 'azure_t4'
+
+
+def provider_name():
+    value = os.getenv('GPU_PROVIDER', AZURE_PROVIDER)
+    if value not in (LOCAL_PROVIDER, AZURE_PROVIDER):
+        raise RuntimeError('GPU_PROVIDER must be local or azure_t4')
+    return value
+
+
+def local_gpu_online(db):
+    return bool(db.execute(text("""SELECT EXISTS (
+        SELECT 1 FROM gpu_workers
+        WHERE ready = 1 AND last_seen > EXTRACT(EPOCH FROM NOW()) - 30
+    )""")).scalar())
+
+
+def next_execution(db, provider):
+    active = (Job.status.in_(ACTIVE), CloudExecution.deadline > time.time())
+    assigned = db.scalar(select(CloudExecution.id).join(Job, Job.id == CloudExecution.generation)
+        .where(*active, CloudExecution.gpu_provider == provider)
+        .order_by(CloudExecution.created).limit(1))
+    if assigned:
+        return assigned
+    local_online = local_gpu_online(db)
+    if (provider == LOCAL_PROVIDER) != local_online:
+        return None
+    return db.scalar(select(CloudExecution.id).join(Job, Job.id == CloudExecution.generation)
+        .where(*active, Job.status == 'queued', CloudExecution.gpu_provider == '')
+        .order_by(CloudExecution.created).limit(1))
 
 
 def update(identifier, *, renew_lease=False, **fields):
@@ -87,7 +118,8 @@ def stop_child(child):
             child.wait(timeout=5)
 
 
-def process(identifier, lock):
+def process(identifier, lock, provider=None):
+    provider = provider or provider_name()
     cfg = settings()
     child = None
     activity = None
@@ -97,6 +129,8 @@ def process(identifier, lock):
         with Session.begin() as db:
             execution = db.get(CloudExecution, identifier)
             job = db.get(Job, execution.generation, with_for_update=True)
+            if execution.gpu_provider and execution.gpu_provider != provider:
+                return
             if job.status == 'cancel_requested':
                 job.status = 'cancelled'
                 execution.finished = time.time()
@@ -112,6 +146,7 @@ def process(identifier, lock):
                 job.status, job.error = 'failed', 'Configuration unavailable or deadline exceeded'
                 execution.finished = time.time()
                 return
+            execution.gpu_provider = provider
             job.status, job.stage = 'provisioning', 'starting_gpu'
             execution.started = time.time()
             supervised = health_supervised(execution)
@@ -185,19 +220,23 @@ def main():
     if engine.dialect.name != 'postgresql':
         raise RuntimeError('Cloud worker requires PostgreSQL locking')
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    provider = provider_name()
     while True:
         try:
+            if provider == LOCAL_PROVIDER:
+                with Session() as db:
+                    if not local_gpu_online(db):
+                        time.sleep(5)
+                        continue
             with engine.connect() as lock:
                 acquired = lock.execute(text('SELECT pg_try_advisory_lock(:id)'), {'id': LOCK_ID}).scalar()
                 lock.commit()
                 if acquired:
                     try:
                         with Session() as db:
-                            identifier = db.scalar(select(CloudExecution.id).join(Job, Job.id == CloudExecution.generation)
-                                .where(Job.status.in_(ACTIVE), CloudExecution.deadline > time.time())
-                                .order_by(CloudExecution.created).limit(1))
+                            identifier = next_execution(db, provider)
                         if identifier:
-                            process(identifier, lock)
+                            process(identifier, lock, provider)
                     finally:
                         lock.execute(text('SELECT pg_advisory_unlock(:id)'), {'id': LOCK_ID})
                         lock.commit()

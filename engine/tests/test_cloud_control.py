@@ -13,9 +13,10 @@ from videotranslator.db import Base, engine, Session, Job
 from videotranslator.storage import LocalStorage
 
 
-@pytest.mark.parametrize('reverse,expected', [('true', 'WHERE FALSE'),
-                                             ('false', "WHERE j.status IN")])
-def test_scaler_view_switches_off_for_reverse_gpu(monkeypatch, reverse, expected):
+@pytest.mark.parametrize('mode,expected', [('local_only', 'WHERE FALSE'),
+                                          ('azure_t4', "WHERE j.status IN"),
+                                          ('hybrid', "e.gpu_provider = 'azure_t4'")])
+def test_scaler_view_selects_provider_mode(monkeypatch, mode, expected):
     from contextlib import contextmanager
     from types import SimpleNamespace
     from videotranslator import cloud_control
@@ -26,12 +27,35 @@ def test_scaler_view_switches_off_for_reverse_gpu(monkeypatch, reverse, expected
     @contextmanager
     def begin():
         yield Connection()
-    monkeypatch.setenv('REVERSE_GPU_ENABLED', reverse)
+    monkeypatch.setenv('GPU_PROVIDER_MODE', mode)
     monkeypatch.setattr(cloud_control, 'init_db', lambda: None)
     monkeypatch.setattr(cloud_control, 'engine', SimpleNamespace(
         dialect=SimpleNamespace(name='postgresql'), begin=begin))
     cloud_control.initialize()
-    assert expected in statements[0]
+    assert expected in statements[-1]
+
+
+def test_local_provider_has_priority_and_azure_keeps_assigned_work(control, monkeypatch):
+    from videotranslator import cloud_worker
+    identifier, response = submit(control)
+    generation = response.json()['generation']
+    online = [True]
+    monkeypatch.setattr(cloud_worker, 'local_gpu_online', lambda _db: online[0])
+    with Session() as db:
+        assert cloud_worker.next_execution(db, 'local') == identifier
+        assert cloud_worker.next_execution(db, 'azure_t4') is None
+    online[0] = False
+    with Session() as db:
+        assert cloud_worker.next_execution(db, 'local') is None
+        assert cloud_worker.next_execution(db, 'azure_t4') == identifier
+    with Session.begin() as db:
+        execution = db.get(CloudExecution, identifier)
+        execution.gpu_provider = 'azure_t4'
+        db.get(Job, generation).status = 'provisioning'
+    online[0] = True
+    with Session() as db:
+        assert cloud_worker.next_execution(db, 'local') is None
+        assert cloud_worker.next_execution(db, 'azure_t4') == identifier
 
 TOKEN = 'test-private-control-token-32-characters'
 

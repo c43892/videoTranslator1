@@ -1,9 +1,9 @@
 # Azure Japan East deployment
 
-The cloud CPU / outbound home GPU architecture is live as of 2026-09-29 and is
-described in [the reverse GPU deployment guide](../../docs/REVERSE_GPU_DEPLOYMENT.md).
-The T4 Container App revision is inactive and retained for rollback. The older T4
-instructions below document the previous validation deployment.
+The hybrid cloud CPU / outbound home GPU architecture is live as of 2026-09-29 and
+is described in [the reverse GPU deployment guide](../../docs/REVERSE_GPU_DEPLOYMENT.md).
+The local RTX provider has priority. The T4 Container App remains active at min 0
+and wakes as the fallback only when no local GPU host is ready.
 
 YouTube imports can now use an outbound-only Windows home worker. See
 [home worker deployment and validation](../../docs/HOME_DOWNLOAD_WORKER.md) and
@@ -116,10 +116,11 @@ On 2026-09-24 the user authorized continuous web operation. The CPU VM's daily
 the website as GPU cleanup. `provision-cpu.ps1` defaults to no shutdown schedule;
 its `-ValidationAutoShutdown` switch is only for explicitly time-limited validation.
 
-The previous T4 revision had min=0/max=1 with durable queued/running work as its
-trigger. It is inactive after the reverse GPU cutover, so its replicas cannot run.
-CPU, disks, registry, storage and traffic charges remain. Existing application GPU
-admission budgets remain.
+The hybrid T4 revision has min=0/max=1 with provider-aware durable work as its
+trigger. Local heartbeats suppress unassigned work from the scaler; Azure-assigned
+work remains visible until terminal. GPU replicas can incur charges during fallback
+cold start, processing and cooldown. CPU, disks, registry, storage and traffic
+charges remain. Existing application GPU admission budgets remain.
 Budget alerts are not spending caps, and the earlier US$20 validation allowance
 does not cover indefinite web operation newly authorized by the user.
 

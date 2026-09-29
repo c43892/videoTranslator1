@@ -36,6 +36,7 @@ ALTER ROLE gpu_scaler PASSWORD '%s';
 GRANT CONNECT ON DATABASE videotranslator TO gpuworker, gpu_scaler;
 GRANT USAGE ON SCHEMA public TO gpuworker, gpu_scaler;
 GRANT SELECT, UPDATE ON jobs, cloud_executions TO gpuworker;
+GRANT SELECT ON gpu_workers TO gpuworker;
 GRANT SELECT ON gpu_runnable_work TO gpu_scaler;
 """ % (state['worker_password'], state['scaler_password'])
     subprocess.run(['ssh', '-i', str(ROOT/'secrets/azure-jp-ed25519'),
