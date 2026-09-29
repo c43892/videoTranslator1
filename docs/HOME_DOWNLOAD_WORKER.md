@@ -74,3 +74,9 @@
 已确认任务 Running，vidyi.cc 成功心跳在 7 秒内，两个下载位可用。
 代理日志为运行目录下 `worker.log`，最近心跳写入不含密钥的 `worker-status.json`。
 密钥文件仅当前用户和 SYSTEM 可访问。未修改系统休眠设置；电脑需保持联网、不休眠。
+
+2026-09-29 Windows 重启后发现旧运行目录和计划任务均不存在。已从仓库中的固定版本重新创建
+`secrets/home-download-worker/runtime`，生成新的独立 worker token 并追加到云端允许列表，安装用户级
+FFmpeg，使用本机已验证的 Node 运行时，并重新注册 `VideoTranslator Home Downloader` 登录任务。
+恢复后任务处于 Running，公网心跳成功，容量为 2、活动任务为 0。临时 token 传输对象及本地中间
+注册文件均已删除；长期 token 只保留在受 ACL 保护的 `config.json` 和云端私有 `studio.env` 中。
