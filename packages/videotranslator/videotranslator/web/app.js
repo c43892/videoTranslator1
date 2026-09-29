@@ -1,4 +1,4 @@
-import {copy, normalizeLocale} from './i18n.js?v=20260924-admin-pricing';
+import {copy, normalizeLocale} from './i18n.js?v=20260929-youtube-availability';
 import {createLanguagePicker} from './language-picker.js?v=20260923-stripe-env';
 import {createAccount} from './account.js?v=20260924-admin-pricing';
 import {createHistory, queueMessageKey} from './history.js?v=20260924-auto-queue';
@@ -159,9 +159,12 @@ function render(scroll = false) {
     if (draft.step === 'source') {
       const grid = node('div', 'choice-grid');
       for (const [kind, icon, title, detail] of [['youtube','▶','youtube','youtubeDetail'],['upload','↥','upload','uploadDetail']]) {
+        const unavailable = kind === 'youtube' && config.youtube_available === false;
         const card = button('', async () => {await edit({choice:'source',value:kind}); if (kind === 'upload') $('file').click();}, 'choice-card');
+        card.dataset.unavailable = String(unavailable); card.disabled = unavailable;
+        if (unavailable) card.setAttribute('aria-disabled', 'true');
         card.append(node('span','choice-icon',icon));
-        const text = node('span'); text.append(node('strong','',t(title)),node('small','',t(detail))); card.append(text,node('span','arrow','↗')); grid.append(card);
+        const text = node('span'); text.append(node('strong','',t(title)),node('small','',t(unavailable ? 'youtubeUnavailable' : detail))); card.append(text,node('span','arrow',unavailable ? '—' : '↗')); grid.append(card);
       }
       actions.append(grid);
     } else if (draft.step === 'file') {
@@ -445,6 +448,17 @@ document.addEventListener('balance-updated', () => {errorNotice.recovered('balan
 history = createHistory({api,t,money:cents => account.money(cents),download:downloadJob,preview:previewResult,refreshBalance:() => account.refresh()});
 boot();
 
+async function refreshYouTubeAvailability() {
+  if (!config || document.hidden) return;
+  try {
+    const response = await fetch('/api/v1/chat/youtube-availability', {cache:'no-store'});
+    if (!response.ok) return;
+    const latest = await response.json();
+    const availabilityChanged = latest.available !== config.youtube_available;
+    config.youtube_available = latest.available;
+    if (availabilityChanged && draft?.status === 'draft') render();
+  } catch { /* Keep the last known presence; server validation remains authoritative. */ }
+}
 async function refreshPublicPricing() {
   if (!config || document.hidden) return;
   try {
@@ -454,5 +468,6 @@ async function refreshPublicPricing() {
     if (latest.pricing_version !== config.pricing_version) {Object.assign(config, latest); localize();}
   } catch { /* Keep the last known price; confirmation uses the server quote. */ }
 }
-window.addEventListener('focus', refreshPublicPricing);
+window.addEventListener('focus', () => {refreshYouTubeAvailability(); refreshPublicPricing();});
+setInterval(refreshYouTubeAvailability, 5000);
 setInterval(refreshPublicPricing, 60000);

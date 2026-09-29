@@ -73,11 +73,15 @@ Object.assign(copy.en, {
  downloadQueued: 'Waiting for an available download slot.',
  downloadReconnecting: 'Download service unavailable. Retrying every 10 seconds',
  downloadUnavailable: 'The download service is unavailable after 10 retries. You can retry the download.',
+ youtubeUnavailable: 'Unavailable while no YouTube download agent is online',
+ youtube_proxy_unavailable: 'YouTube links are unavailable because no download agent is online. You can upload a file instead.',
 });
 Object.assign(copy.zh, {
  downloadQueued: '正在排队等待可用的下载位置。',
  downloadReconnecting: '下载服务暂时不可用，正在每隔 10 秒重试',
  downloadUnavailable: '重试 10 次后下载服务仍不可用。你可以点击“重新下载”再次尝试。',
+ youtubeUnavailable: '暂无在线的 YouTube 下载代理，当前不可用',
+ youtube_proxy_unavailable: '当前没有在线的 YouTube 下载代理，暂时不能使用链接。你仍可上传本地文件。',
 });
 for (const [locale, values] of Object.entries({
  en: ['Your translation is queued and will start automatically. No retry is needed.', 'Translation is temporarily paused. Your task is saved and will continue automatically when service resumes.'],

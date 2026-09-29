@@ -75,6 +75,10 @@ class ConversationService:
             "source_kind": before.source_kind,
             "target_language": before.target_language, "messages": before.messages[before.round_start:][-6:],
         }) if text else Interpretation()
+        requested_source = value if choice == "source" else parsed.source_kind
+        if (requested_source == "youtube" or parsed.youtube_url) and self.home_downloads:
+            if not self.home_downloads.available():
+                raise ValueError("youtube_proxy_unavailable")
         with self.store.transaction() as tx:
             draft = self.owned(tx, key, owner)
             if draft.revision != revision or (draft.status != "draft" and not language_only):

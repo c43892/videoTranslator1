@@ -33,11 +33,13 @@ def home(container):
     return container, broker, time
 
 
-def enqueue(container, key="chat-1"):
+def enqueue(container, key="chat-1", *, online=True):
     service = container.conversations
     with container.store.transaction() as tx:
         tx.insert(Conversation(conversation_id=key, owner_user_id="owner", youtube_url=URL,
                                source_kind="youtube", target_language="en"), key)
+    if online:
+        register(service.home_downloads)
     return service.prepare(key, "owner", 0)
 
 
@@ -47,10 +49,17 @@ def register(broker, token=TOKEN):
     return worker
 
 
-def test_offline_exactly_ten_spaced_retries_then_user_retry(home):
+def test_new_youtube_import_is_rejected_offline_and_disconnect_keeps_retry_policy(home):
     container, broker, time = home
-    draft = enqueue(container)
-    for count in range(10):
+    with pytest.raises(ValueError, match="youtube_proxy_unavailable"):
+        enqueue(container, online=False)
+    with container.store.transaction() as tx:
+        assert tx.query(DownloadTask) == []
+
+    register(broker)
+    draft = container.conversations.prepare("chat-1", "owner", 0)
+    time[0] += broker.PRESENCE_MS
+    for count in range(1, 10):
         broker.tick()
         task = broker.get(draft.download_task_id)
         assert task.unavailable_retries == count and task.status == "queued"
@@ -61,10 +70,38 @@ def test_offline_exactly_ten_spaced_retries_then_user_retry(home):
     broker.tick()
     failed = container.conversations.get(draft.conversation_id, "owner")
     assert failed.status == "import_failed" and failed.error == "youtube_proxy_unavailable"
+    with pytest.raises(ValueError, match="youtube_proxy_unavailable"):
+        container.conversations.prepare(draft.conversation_id, "owner", 0)
+    register(broker)
     retried = container.conversations.prepare(draft.conversation_id, "owner", 0)
     assert retried.download_task_id != draft.download_task_id
     assert broker.get(retried.download_task_id).unavailable_retries == 0
     assert broker.get(draft.download_task_id).status == "abandoned"
+
+
+def test_public_availability_tracks_recent_heartbeat(home):
+    container, broker, time = home
+    client = TestClient(create_app(container))
+    assert client.get("/api/v1/chat/config").json()["youtube_available"] is False
+    assert client.get("/api/v1/chat/youtube-availability").json()["available"] is False
+    register(broker)
+    assert client.get("/api/v1/chat/config").json()["youtube_available"] is True
+    assert client.get("/api/v1/chat/youtube-availability").json()["available"] is True
+    time[0] += broker.PRESENCE_MS
+    assert client.get("/api/v1/chat/config").json()["youtube_available"] is False
+
+
+def test_http_source_selection_is_rejected_without_agent(home):
+    container, broker, _ = home
+    client = TestClient(create_app(container), headers={"Authorization": "Bearer fake:chat-user"})
+    draft = client.post("/api/v1/conversations", json={"locale": "en"}).json()
+    path = f"/api/v1/conversations/{draft['conversation_id']}/messages"
+    body = {"revision": draft["revision"], "choice": "source", "value": "youtube"}
+    response = client.post(path, json=body)
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "youtube_proxy_unavailable"
+    register(broker)
+    assert client.post(path, json=body).status_code == 200
 
 
 def test_busy_worker_queues_third_without_offline_failure(home):

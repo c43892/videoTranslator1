@@ -69,5 +69,6 @@ body[data-session=guest] #actions{text-align:center}body[data-session=guest] #ac
  .history-view{padding:24px 18px}.history-heading h1{font-size:24px}.history-item{grid-template-columns:minmax(0,1fr) auto}.history-task-actions{grid-column:1/-1}.history-detail{padding:20px}
 }
 @media(max-width:430px){.choice-grid{grid-template-columns:1fr}.choice-card small{margin-top:2px}.choice-card{padding:16px}.intro h1{font-size:25px}.intro-subtitle{max-width:260px;margin:0 auto}}
+.choice-card:disabled{cursor:not-allowed;opacity:.55;background:#f7f8f4}.choice-card:disabled:hover{border-color:#e1e6dc;transform:none}
 
 .payment-mode-badge{font-size:11px;color:#805518;background:#fff0c9;padding:4px 8px;border-radius:6px;white-space:nowrap}

@@ -55,6 +55,7 @@ def install_conversation_routes(app, container, identity_dependency, http_error)
     @app.get("/api/v1/chat/config")
     def config():
         return {"local": local, "profile": container.settings.profile,
+                "youtube_available": not service.home_downloads or service.home_downloads.available(),
                 "processing_available": container.settings.processing_available,
                 "demo": container.settings.profile == "test" or not container.settings.processing_available,
                 "auth_mode": "demo" if container.settings.profile == "test" else container.settings.auth_mode,
@@ -64,6 +65,10 @@ def install_conversation_routes(app, container, identity_dependency, http_error)
                 **public_price(container.funding.pricing.current()),
                 "max_upload_bytes": container.settings.max_upload_bytes,
                 "target_languages": ["zh", "en"]}
+
+    @app.get("/api/v1/chat/youtube-availability")
+    def youtube_availability():
+        return {"available": not service.home_downloads or service.home_downloads.available()}
 
     @app.post("/api/v1/conversations", status_code=201)
     def create(body: NewConversation, identity=Depends(identity_dependency)):

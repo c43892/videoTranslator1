@@ -32,6 +32,22 @@ class HomeDownloads:
     def enabled(self):
         return self.settings.youtube_download_mode == "home-worker"
 
+    def _online(self, tx, now):
+        known = self._known_workers()
+        return any(w.worker_id in known and now - w.last_seen < self.PRESENCE_MS
+                   for w in tx.query(DownloadWorker))
+
+    def available(self):
+        """Return whether YouTube imports have a live configured worker.
+
+        Capacity is deliberately excluded: a connected but busy worker remains
+        available, and the durable queue waits for one of its slots.
+        """
+        if not self.enabled:
+            return True
+        with self.store.transaction() as tx:
+            return self._online(tx, self.clock())
+
     def authenticate(self, token):
         if not self.enabled or not token:
             return None
@@ -42,6 +58,8 @@ class HomeDownloads:
 
     def enqueue(self, tx, draft):
         now = self.clock()
+        if self.enabled and not self._online(tx, now):
+            raise ValueError("youtube_proxy_unavailable")
         if draft.download_task_id:
             previous = tx.get(DownloadTask, draft.download_task_id)
             if previous:
@@ -70,8 +88,7 @@ class HomeDownloads:
 
     def _tick(self, tx, now):
         known = self._known_workers()
-        online = any(w.worker_id in known and now - w.last_seen < self.PRESENCE_MS
-                     for w in tx.query(DownloadWorker))
+        online = self._online(tx, now)
         for task in tx.query(DownloadTask, where_in=("status", ["queued", "leased"])):
             if task.status == "leased":
                 if task.deadline <= now:
