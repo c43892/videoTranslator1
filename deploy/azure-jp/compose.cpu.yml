@@ -75,6 +75,7 @@ services:
       TTS_URL: http://gpu-broker:8082
       DEMUCS_URL: http://gpu-broker:8082
       GPU_BROKER_INTERNAL_TOKEN: ${GPU_BROKER_INTERNAL_TOKEN:?Set GPU_BROKER_INTERNAL_TOKEN}
+      GPU_PROVIDER: local
     command: [python, -m, videotranslator.cloud_worker]
     volumes: ['/mnt/videotranslator-data:/data']
     depends_on:

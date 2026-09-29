@@ -2,6 +2,7 @@ import base64
 import json
 import time
 import uuid
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -11,6 +12,12 @@ from videotranslator.cloud_control import app, CloudExecution
 from videotranslator.config import settings
 from videotranslator.db import Base, engine, Session, Job
 from videotranslator.storage import LocalStorage
+
+
+def test_reverse_gpu_engine_worker_declares_local_provider():
+    compose = (Path(__file__).parents[2] / 'deploy' / 'azure-jp' / 'compose.cpu.yml').read_text()
+    worker = compose.split('\n  engine-worker:\n', 1)[1].split('\n  postgres:\n', 1)[0]
+    assert 'GPU_PROVIDER: local' in worker
 
 
 @pytest.mark.parametrize('mode,expected', [('local_only', 'WHERE FALSE'),
