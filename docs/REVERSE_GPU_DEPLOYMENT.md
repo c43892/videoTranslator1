@@ -7,15 +7,19 @@ CPU engine worker, PostgreSQL and the GPU broker. One Windows RTX 4060 Ti host i
 registered through outbound HTTPS. The Azure T4 Container App is an active fallback
 provider with min 0/max 1. The public site reports processing available, Firebase
 sign-in and the existing live payment mode. New job admissions are on.
-The active fallback revision is `videotranslator-gpu--hybrid-1d77ff`; both workers
-use engine digest `sha256:1d77ff2a16fcd3cd49d85769e7669bf0970444c1dc4a429e16ed7b12ec9ba7ad`.
+The active fallback revision is `videotranslator-gpu--pipeline-1790714723`.
+The CPU engine control, CPU worker, GPU broker and Azure T4 worker use engine
+digest `sha256:9ecd14d445f1f61c5475e60098ac3a5be3ec00d9fdc6b1f060de7b25207a44ba`;
+Studio uses control digest
+`sha256:acda8f3cddc89edb82ad54ae45a33de511fccce1e14121e82f7702f28838e1ac`.
 The original `azure-jp-t4` profile identifier remains in Studio for compatibility;
 GPU execution is selected by the new worker and broker configuration, not that
 display identifier.
 
 A synthetic audio check exercised remote tokenization, Demucs separation into
 three stems and IndexTTS2 speech generation. All passed, with the broker reporting
-one ready host. A full user video acceptance test is pending the user's sample.
+one ready host. A 19.59-minute user video subsequently completed on the local
+provider and a second one-minute job completed after the ordered scheduler cutover.
 The Windows host is set to stay awake on AC power and Docker Desktop is configured
 to start when the user signs in. Docker Desktop does not provide GPU service before
 Windows sign-in.
@@ -164,6 +168,77 @@ its job starts stops publishing; that attempt
 fails closed instead of moving mid-run between providers. The user can retry as a
 new attempt. Large audio transfers use the home's upload connection and may affect
 total processing time.
+
+## Ordered scheduler production verification (2026-09-29)
+
+The guarded rollout completed without interrupting the pre-existing local job.
+Production was verified with `GPU_PROVIDER_PRIORITY=local,azure_t4`, capacities
+`local=1,azure_t4=1`, and a 10-second scheduler interval. The Azure revision is
+active with the same engine digest, `GPU_PROVIDER=azure_t4`, min 0/max 1, a
+10-second KEDA polling interval, and zero replicas while idle. The CPU worker and
+broker use the new engine digest, the private engine-control health check and
+`https://vidyi.cc/api/v1/health/ready` returned HTTP 200, admissions were restored,
+one ready local agent had a current heartbeat, and `gpu_runnable_work` was empty.
+
+The one-shot verifier initially failed after the deployment had already completed:
+first it inspected a container as though it were an image and requested the absent
+`RepoDigests` field; a retry then encountered an expired ACR pull authorization even
+though the required immutable image was already present and running. The verifier
+was corrected to inspect the container's configured image and to validate the
+already-running digest without an unnecessary registry pull. Its final run emitted
+`ORDERED_GPU_ROLLOUT_COMPLETE` and exited successfully.
+
+## Local GPU performance investigation (2026-09-29)
+
+The completed 19.59-minute video spent 13 minutes 49.7 seconds waiting before its
+execution lease and 1 hour 59 minutes 19.1 seconds executing. The queue delay is not
+GPU processing time. Within execution, the measured/inferred stage windows were:
+
+| Window | Wall time | Evidence and limitation |
+| --- | ---: | --- |
+| Execution start to separation task creation | 10.2 s | Database timestamps |
+| Demucs task creation to first tokenizer task | 6 min 42.0 s | Includes Demucs plus its downloads/uploads and CPU handoff |
+| Tokenizer window to first synthesis task | 53.6 s | Five serial tokenizer tasks |
+| First synthesis task to execution finish | 1 h 51 min 33.3 s | Includes the last synthesis, alignment/mix/encode and final publication |
+
+Synthesis was the dominant window: 471 calls handled only 3,884 translated
+characters, or 8.25 characters per call. The pipeline creates and waits for one
+segment at a time, while the agent permits only one lease. Across the 470 measurable
+creation-to-next-creation intervals, total time was 1 hour 49 minutes 37.4 seconds;
+the mean was 13.994 seconds, median 12.415 seconds, p95 25.474 seconds and maximum
+34.464 seconds. A simple latency regression was `7.848 seconds + 0.744 seconds per
+character` (R-squared 0.719). This associates about 61.5 minutes with per-call fixed
+cost across those intervals, although current telemetry cannot split that fixed
+cost exactly among HTTPS/DB coordination, local service overhead and model inference.
+
+The media was small as a delivered video but not as GPU intermediate data. Demucs
+downloaded 224.5 MB and uploaded three 414.6 MB WAV stems, about 1.47 GB in total.
+Synthesis downloaded 165.5 MB of reference WAVs and uploaded 38.9 MB of generated
+audio, about 204.5 MB in total. More importantly, every one of the 471 synthesis
+calls performs two reference downloads and one output upload, producing 1,413
+audio transfers plus claim, heartbeat and completion requests. Bandwidth can
+therefore contribute materially to the 6-minute-42-second Demucs window, while the
+synthesis measurements point mainly to multiplied per-request latency and strictly
+serial fine-grained inference rather than total byte volume.
+
+All one separation task, five tokenizer tasks and 471 synthesis tasks finished in
+`completed` state under one worker; there were no terminal failed or cancelled GPU
+task rows. The schema does not preserve attempt-level history, so it cannot exclude
+short lease retries. It also retains only a cumulative five-second GPU-activity
+counter, not timestamped utilization, memory, clock or power samples. Consequently,
+this run proves that orchestration granularity dominated end-to-end time but does
+not prove that the RTX 4060 Ti's raw inference throughput is lower than a T4. There
+is no same-video, same-revision T4 run in the current telemetry; the historical
+18-second T4 validation included cold start and is not a valid comparison.
+
+The smallest next-run instrumentation is to persist task completion timestamps and
+agent-side monotonic durations for input download, local API wait/inference and
+output upload, plus one-second `nvidia-smi` utilization/memory/power samples labeled
+by job and task. A controlled comparison should reuse the same cached model, media,
+segmentation and revision on both GPUs. Likely optimization candidates, pending
+separate authorization, are batching/coalescing very short TTS segments, avoiding
+the duplicate speaker/emotion reference download when both keys are identical, and
+reusing reference audio across consecutive segments.
 
 Only `/api/v1/gpu-workers/*` is publicly proxied to the broker. Keep its `/health`,
 `/tokenize`, `/synthesize`, `/separations` and PostgreSQL ports on the private
