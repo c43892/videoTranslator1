@@ -3,7 +3,7 @@
 The hybrid cloud CPU / outbound home GPU architecture is live as of 2026-09-29 and
 is described in [the reverse GPU deployment guide](../../docs/REVERSE_GPU_DEPLOYMENT.md).
 The local RTX provider has priority. The T4 Container App remains active at min 0
-and wakes as the fallback only when no local GPU host is ready.
+and wakes for the next FIFO job when local is offline or its provider slot is busy.
 
 YouTube imports can now use an outbound-only Windows home worker. See
 [home worker deployment and validation](../../docs/HOME_DOWNLOAD_WORKER.md) and
@@ -75,8 +75,8 @@ authentication stays disabled.
 The CPU profile runs its outbox dispatcher, payment inbox and result reconciler
 even while GPU replicas are zero. Private `/health` checks only the control database;
 webpage health never wakes a GPU. GPU work is represented by PostgreSQL rows and the
-read-only `gpu_runnable_work` view. The cloud worker polls this durable queue while
-holding the same deployment-wide advisory lock used by the existing engine. This
+read-only `gpu_runnable_work` view. Cloud workers poll this durable FIFO every ten
+seconds and use a separate stable advisory lock per provider. This
 cloud-only entrypoint removes the need for a separate Redis/Celery broker on the
 CPU VM; the local Celery deployment is unchanged.
 
@@ -124,8 +124,9 @@ the website as GPU cleanup. `provision-cpu.ps1` defaults to no shutdown schedule
 its `-ValidationAutoShutdown` switch is only for explicitly time-limited validation.
 
 The hybrid T4 revision has min=0/max=1 with provider-aware durable work as its
-trigger. Local heartbeats suppress unassigned work from the scaler; Azure-assigned
-work remains visible until terminal. GPU replicas can incur charges during fallback
+trigger. A ready and idle higher-priority local slot suppresses unassigned work;
+local busy/offline exposes the next queued job, while Azure-assigned work remains
+visible until terminal. GPU replicas can incur charges during spillover
 cold start, processing and cooldown. CPU, disks, registry, storage and traffic
 charges remain. Existing application GPU admission budgets remain.
 Budget alerts are not spending caps, and the earlier US$20 validation allowance

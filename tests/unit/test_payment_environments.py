@@ -47,6 +47,11 @@ def test_mode_alone_selects_credentials_store_and_queue(profiles, monkeypatch):
         assert selected.key not in repr(selected) and selected.webhook_secret not in repr(selected)
 
 
+def test_active_job_limit_can_follow_deployed_provider_slots(monkeypatch):
+    monkeypatch.setenv('MAX_ACTIVE_JOBS_PER_USER', '2')
+    assert settings_from_env().max_active_jobs_per_user == 2
+
+
 @pytest.mark.parametrize('field,value', [('STRIPE_LIVE_SECRET_KEY','sk_test_wrong'),
     ('STRIPE_LIVE_SECRET_KEY',''), ('STRIPE_LIVE_WEBHOOK_SECRET','')])
 def test_missing_profile_never_falls_back_to_legacy_key(profiles, field, value):

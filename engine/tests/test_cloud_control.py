@@ -64,6 +64,41 @@ def test_local_provider_has_priority_and_azure_keeps_assigned_work(control, monk
         assert cloud_worker.next_execution(db, 'local') is None
         assert cloud_worker.next_execution(db, 'azure_t4') == identifier
 
+
+def test_busy_local_spills_to_t4_and_both_busy_leave_fifo_queued(control, monkeypatch):
+    from videotranslator import cloud_worker
+    monkeypatch.setenv('CLOUD_VALIDATION_MAX_JOBS', '0')
+    monkeypatch.setattr(cloud_worker, 'local_gpu_online', lambda _db: True)
+    first, first_response = submit(control)
+    second, second_response = submit(control)
+    third, _ = submit(control)
+    with Session.begin() as db:
+        first_execution = db.get(CloudExecution, first)
+        first_execution.gpu_provider = 'local'
+        db.get(Job, first_response.json()['generation']).status = 'running'
+    with Session() as db:
+        assert cloud_worker.provider_available(db, 'local') is False
+        assert cloud_worker.next_execution(db, 'azure_t4') == second
+    with Session.begin() as db:
+        second_execution = db.get(CloudExecution, second)
+        second_execution.gpu_provider = 'azure_t4'
+        db.get(Job, second_response.json()['generation']).status = 'running'
+    with Session() as db:
+        assert cloud_worker.provider_available(db, 'local') is False
+        assert cloud_worker.provider_available(db, 'azure_t4') is False
+        assert db.get(CloudExecution, third).gpu_provider == ''
+
+
+def test_provider_order_lock_and_poll_contract(monkeypatch):
+    from videotranslator.gpu_scheduler import poll_seconds, provider_lock_id, provider_priority
+    monkeypatch.delenv('GPU_PROVIDER_PRIORITY', raising=False)
+    monkeypatch.delenv('GPU_SCHEDULER_POLL_SECONDS', raising=False)
+    assert provider_priority() == ('local', 'azure_t4')
+    assert provider_lock_id('local') != provider_lock_id('azure_t4')
+    assert poll_seconds() == 10
+    template = json.loads((Path(__file__).parents[2] / 'deploy' / 'azure-jp' / 'gpu.template.json').read_text())
+    assert template['properties']['template']['scale']['pollingInterval'] == 10
+
 TOKEN = 'test-private-control-token-32-characters'
 
 

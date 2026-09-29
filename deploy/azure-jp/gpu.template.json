@@ -31,6 +31,9 @@
             {"name":"TTS_TOKENIZE_TIMEOUT_SECONDS","value":"600"},
             {"name":"DEMUCS_URL","value":"http://localhost:8001"},
             {"name":"GPU_PROVIDER","value":"azure_t4"},
+            {"name":"GPU_PROVIDER_PRIORITY","value":"local,azure_t4"},
+            {"name":"GPU_PROVIDER_CAPACITIES","value":"local=1,azure_t4=1"},
+            {"name":"GPU_SCHEDULER_POLL_SECONDS","value":"10"},
             {"name":"STORAGE_ROOT","value":"/data"}
           ],
           "volumeMounts": [{"volumeName":"data","mountPath":"/data"}]
@@ -41,7 +44,7 @@
         {"name":"models","storageType":"AzureFile","storageName":"models"}
       ],
       "scale": {
-        "minReplicas": 0, "maxReplicas": 1, "pollingInterval": 30, "cooldownPeriod": 300,
+        "minReplicas": 0, "maxReplicas": 1, "pollingInterval": 10, "cooldownPeriod": 300,
         "rules": [{"name":"durable-work","custom":{
           "type":"postgresql",
           "metadata":{"query":"SELECT COUNT(*) FROM gpu_runnable_work","targetQueryValue":"1","activationTargetQueryValue":"0"},

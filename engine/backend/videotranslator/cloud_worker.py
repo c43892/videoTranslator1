@@ -11,24 +11,23 @@ import sys
 import time
 
 import httpx
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 
 from .cloud_control import CloudExecution, ACTIVE, health_supervised, HEARTBEAT_LEASE_SECONDS
 from .runtime_health import ProcessActivity, ActivityWatchdog
 from .config import settings
 from .db import engine, Session, Job
 from .domain import Cancelled
+from .gpu_scheduler import (AZURE_PROVIDER, LOCAL_PROVIDER, always_available_providers,
+                            poll_seconds, provider_capacities, provider_lock_id,
+                            provider_priority)
 from .storage import LocalStorage
-
-LOCK_ID = 24299694758483269
-LOCAL_PROVIDER = 'local'
-AZURE_PROVIDER = 'azure_t4'
 
 
 def provider_name():
     value = os.getenv('GPU_PROVIDER', AZURE_PROVIDER)
-    if value not in (LOCAL_PROVIDER, AZURE_PROVIDER):
-        raise RuntimeError('GPU_PROVIDER must be local or azure_t4')
+    if value not in provider_priority():
+        raise RuntimeError('GPU_PROVIDER must be present in GPU_PROVIDER_PRIORITY')
     return value
 
 
@@ -39,6 +38,39 @@ def local_gpu_online(db):
     )""")).scalar())
 
 
+def provider_online(db, provider):
+    if provider == LOCAL_PROVIDER:
+        return local_gpu_online(db)
+    if provider in always_available_providers():
+        return True
+    return bool(db.execute(text("""SELECT EXISTS (
+        SELECT 1 FROM gpu_provider_workers
+        WHERE provider = :provider
+          AND ready = 1
+          AND last_seen > EXTRACT(EPOCH FROM NOW()) - 30
+    )"""), {'provider': provider}).scalar())
+
+
+def active_provider_count(db, provider):
+    active = (Job.status.in_(ACTIVE), CloudExecution.deadline > time.time())
+    return int(db.scalar(select(func.count()).select_from(CloudExecution)
+        .join(Job, Job.id == CloudExecution.generation)
+        .where(*active, CloudExecution.gpu_provider == provider)) or 0)
+
+
+def provider_available(db, provider):
+    return (provider_online(db, provider)
+            and active_provider_count(db, provider) < provider_capacities()[provider])
+
+
+def record_provider_heartbeat(db, provider):
+    db.execute(text("""INSERT INTO gpu_provider_workers (provider, last_seen, ready)
+        VALUES (:provider, :last_seen, 1)
+        ON CONFLICT (provider) DO UPDATE SET last_seen=:last_seen, ready=1"""),
+        {'provider': provider, 'last_seen': time.time()})
+    db.commit()
+
+
 def next_execution(db, provider):
     active = (Job.status.in_(ACTIVE), CloudExecution.deadline > time.time())
     assigned = db.scalar(select(CloudExecution.id).join(Job, Job.id == CloudExecution.generation)
@@ -46,9 +78,12 @@ def next_execution(db, provider):
         .order_by(CloudExecution.created).limit(1))
     if assigned:
         return assigned
-    local_online = local_gpu_online(db)
-    if (provider == LOCAL_PROVIDER) != local_online:
+    priority = provider_priority()
+    if not provider_available(db, provider):
         return None
+    for preferred in priority[:priority.index(provider)]:
+        if provider_available(db, preferred):
+            return None
     return db.scalar(select(CloudExecution.id).join(Job, Job.id == CloudExecution.generation)
         .where(*active, Job.status == 'queued', CloudExecution.gpu_provider == '')
         .order_by(CloudExecution.created).limit(1))
@@ -221,15 +256,14 @@ def main():
         raise RuntimeError('Cloud worker requires PostgreSQL locking')
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     provider = provider_name()
+    interval = poll_seconds()
+    lock_id = provider_lock_id(provider)
     while True:
         try:
-            if provider == LOCAL_PROVIDER:
-                with Session() as db:
-                    if not local_gpu_online(db):
-                        time.sleep(5)
-                        continue
+            with Session() as db:
+                record_provider_heartbeat(db, provider)
             with engine.connect() as lock:
-                acquired = lock.execute(text('SELECT pg_try_advisory_lock(:id)'), {'id': LOCK_ID}).scalar()
+                acquired = lock.execute(text('SELECT pg_try_advisory_lock(:id)'), {'id': lock_id}).scalar()
                 lock.commit()
                 if acquired:
                     try:
@@ -238,12 +272,12 @@ def main():
                         if identifier:
                             process(identifier, lock, provider)
                     finally:
-                        lock.execute(text('SELECT pg_advisory_unlock(:id)'), {'id': LOCK_ID})
+                        lock.execute(text('SELECT pg_advisory_unlock(:id)'), {'id': lock_id})
                         lock.commit()
         except Exception as exc:
             # Deliberately exclude raw connection strings and provider errors.
             print('Cloud worker unavailable:', type(exc).__name__, flush=True)
-        time.sleep(5)
+        time.sleep(interval)
 
 
 if __name__ == '__main__':

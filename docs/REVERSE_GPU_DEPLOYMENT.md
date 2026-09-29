@@ -42,26 +42,31 @@ Each host runs both supported GPU operations and has a unique random token. The 
 list and persists workers and tasks in PostgreSQL. A ready host claims one task at a
 time. A task lease lasts 45 seconds and is renewed by heartbeats every 5 seconds.
 Expired leases return to the queue; a former owner cannot publish a result after
-another host claims it. More than one host can register, though the current cloud
-engine runs one whole video at a time because it holds a deployment-wide advisory
-lock. Multiple GPU hosts therefore provide failover and task assignment; they do
-not yet translate multiple videos simultaneously.
+another host claims it. More than one host can register. Registered agents behind
+the same `local` provider currently form one provider slot and provide failover;
+independent concurrent GPU services should receive distinct provider names in the
+ordered provider list.
 
 ## Provider priority and fallback
 
-`GPU_PROVIDER_MODE=hybrid` makes the durable scheduler prefer an online outbound
-GPU host. A job receives a permanent `gpu_provider` assignment when a worker claims
-it. While any local host has sent a ready heartbeat within 30 seconds, unassigned
-jobs are invisible to the Azure scaler and the CPU worker claims them for `local`.
-When no local host is ready, queued unassigned jobs appear in `gpu_runnable_work`,
-which wakes the Azure T4 worker and assigns them to `azure_t4`. An assigned Azure
-job remains visible to the scaler until it is terminal, even if a local host returns.
-This prevents duplicate execution and keeps Azure from scaling down mid-job.
+`GPU_PROVIDER_MODE=hybrid` uses one durable FIFO queue and an explicit finite
+provider order. The production defaults are `GPU_PROVIDER_PRIORITY=local,azure_t4`
+and `GPU_PROVIDER_CAPACITIES=local=1,azure_t4=1`. The scheduler examines providers
+in that order for the oldest unassigned job: it assigns local when a recent ready
+agent exists and the local slot is free; otherwise it assigns Azure T4 when its slot
+is free. When all slots are busy or offline, the job remains unassigned and workers
+check again every `GPU_SCHEDULER_POLL_SECONDS=10` seconds. The T4 KEDA trigger also
+uses a 10-second polling interval, so a scale-to-zero worker follows the same cadence.
 
-The deployment-wide advisory lock still processes one whole video at a time. The
-T4 provides availability when local GPUs are offline; it is not a parallel spillover
-worker while a local video is already running. A provider failure after a job starts
-fails that attempt closed, and a retry uses provider availability at retry time.
+Each provider has a stable, separate PostgreSQL advisory lock, so one local video
+and one T4 video may run concurrently. A job receives a permanent `gpu_provider`
+assignment when claimed. Assigned Azure work remains visible to the scaler until
+terminal, preventing scale-down mid-job. Provider selection is never changed during
+an attempt: a provider failure fails that attempt closed and a user retry re-enters
+the ordered queue. To add another independent GPU service, give its worker a unique
+provider name, insert that name into `GPU_PROVIDER_PRIORITY`, set its capacity, and
+configure either a provider heartbeat or scale-to-zero availability. Do not assign
+capacity greater than the number of independently running workers for that provider.
 
 ## Private configuration
 
@@ -145,14 +150,17 @@ T4 revision/scaler, set `REVERSE_GPU_ENABLED=false` and recreate engine-control 
 restore the scaler view, verify it has capacity, and re-enable admissions. Never allow
 both engine workers to execute against the same database at once.
 
-To enable Azure fallback after the local-only cutover, deploy the same immutable
+To enable ordered Azure spillover after the local-only cutover, deploy the same immutable
 engine image to both workers, set `GPU_PROVIDER=local` on the CPU engine worker and
 `GPU_PROVIDER=azure_t4` on the Container App worker, then change
 `GPU_PROVIDER_MODE=hybrid` and recreate engine control. Keep the T4 revision active
-with min 0/max 1 and its existing `gpu_runnable_work` scaler.
+with min 0/max 1 and its existing `gpu_runnable_work` scaler. The scaler view exposes
+unassigned work when every higher-priority provider is offline or at capacity, not
+only when local is offline.
 
-If all home GPUs are offline before a job is claimed, Azure wakes and handles the
-job. A host that loses a lease after its job starts stops publishing; that attempt
+If all home GPUs are offline or the local provider slot is busy before a job is
+claimed, Azure wakes and handles the next FIFO job. A host that loses a lease after
+its job starts stops publishing; that attempt
 fails closed instead of moving mid-run between providers. The user can retry as a
 new attempt. Large audio transfers use the home's upload connection and may affect
 total processing time.

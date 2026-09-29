@@ -129,6 +129,7 @@ def settings_from_env() -> Settings:
         store_path=payment.store_path if payment else os.environ.get("STORE_PATH", "./vt-data/store.db"),
         local_storage_dir=os.environ.get("LOCAL_STORAGE_DIR", base.local_storage_dir),
         local_queue_db=payment.queue_path if payment else os.environ.get("LOCAL_QUEUE_DB", base.local_queue_db),
+        max_active_jobs_per_user=int(os.environ.get("MAX_ACTIVE_JOBS_PER_USER", str(base.max_active_jobs_per_user))),
         pricing=pricing,
         cost=cost,
     )

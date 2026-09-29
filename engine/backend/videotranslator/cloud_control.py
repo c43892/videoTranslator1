@@ -20,6 +20,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from .config import settings
 from .db import Base, Job, User, Session, engine, init_db
+from .gpu_scheduler import (AZURE_PROVIDER, LOCAL_PROVIDER, always_available_providers,
+                            provider_capacities, provider_priority)
 from .storage import LocalStorage
 
 ACTIVE = ('queued', 'provisioning', 'running', 'cancel_requested')
@@ -74,6 +76,11 @@ def initialize():
         mode = os.getenv('GPU_PROVIDER_MODE') or ('local_only' if legacy_reverse else 'azure_t4')
         if mode not in ('azure_t4', 'local_only', 'hybrid'):
             raise RuntimeError('GPU_PROVIDER_MODE must be azure_t4, local_only, or hybrid')
+        priority = provider_priority()
+        capacities = provider_capacities()
+        always_available = set(always_available_providers())
+        if LOCAL_PROVIDER not in priority or AZURE_PROVIDER not in priority:
+            raise RuntimeError('The current deployment requires local and azure_t4 providers')
         active = """j.status IN ('queued','provisioning','running','cancel_requested')
                 AND e.deadline > EXTRACT(EPOCH FROM NOW())"""
         if mode == 'azure_t4':
@@ -81,13 +88,28 @@ def initialize():
         elif mode == 'local_only':
             predicate = 'FALSE'
         else:
-            predicate = active + """ AND (
-                e.gpu_provider = 'azure_t4'
-                OR (e.gpu_provider = '' AND j.status = 'queued' AND NOT EXISTS (
-                    SELECT 1 FROM gpu_workers w
-                    WHERE w.ready = 1
-                      AND w.last_seen > EXTRACT(EPOCH FROM NOW()) - 30
-                )))"""
+            availability = []
+            for provider in priority[:priority.index(AZURE_PROVIDER)]:
+                escaped = provider.replace("'", "''")
+                if provider == LOCAL_PROVIDER:
+                    online = """EXISTS (SELECT 1 FROM gpu_workers w
+                        WHERE w.ready = 1
+                          AND w.last_seen > EXTRACT(EPOCH FROM NOW()) - 30)"""
+                elif provider in always_available:
+                    online = 'TRUE'
+                else:
+                    online = f"""EXISTS (SELECT 1 FROM gpu_provider_workers pw
+                        WHERE pw.provider = '{escaped}' AND pw.ready = 1
+                          AND pw.last_seen > EXTRACT(EPOCH FROM NOW()) - 30)"""
+                availability.append(f"""NOT ({online} AND
+                    (SELECT COUNT(*) FROM cloud_executions ae JOIN jobs aj ON aj.id=ae.generation
+                     WHERE ae.gpu_provider = '{escaped}' AND aj.status IN
+                     ('queued','provisioning','running','cancel_requested')
+                     AND ae.deadline > EXTRACT(EPOCH FROM NOW())) < {capacities[provider]})""")
+            predecessors_busy = ' AND '.join(availability) or 'TRUE'
+            predicate = active + f""" AND (
+                e.gpu_provider = '{AZURE_PROVIDER}'
+                OR (e.gpu_provider = '' AND j.status = 'queued' AND {predecessors_busy}))"""
         with engine.begin() as db:
             db.execute(text("""CREATE TABLE IF NOT EXISTS gpu_workers (
                 id VARCHAR(64) PRIMARY KEY,
@@ -97,6 +119,11 @@ def initialize():
             )"""))
             db.execute(text("""ALTER TABLE cloud_executions
                 ADD COLUMN IF NOT EXISTS gpu_provider VARCHAR(32) NOT NULL DEFAULT ''"""))
+            db.execute(text("""CREATE TABLE IF NOT EXISTS gpu_provider_workers (
+                provider VARCHAR(32) PRIMARY KEY,
+                last_seen DOUBLE PRECISION NOT NULL DEFAULT 0,
+                ready INTEGER NOT NULL DEFAULT 0
+            )"""))
             db.execute(text(f"""CREATE OR REPLACE VIEW gpu_runnable_work AS
                 SELECT e.id FROM cloud_executions e JOIN jobs j ON j.id=e.generation
                 WHERE {predicate}"""))
