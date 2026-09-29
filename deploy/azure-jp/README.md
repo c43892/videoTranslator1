@@ -24,6 +24,13 @@ sandbox billing callbacks and rollback details are recorded in
 Keep `PUBLIC_HOST=vidyi.cc` and `PUBLIC_APP_URL=https://vidyi.cc` in the private
 deployment environment files. The Azure hostname remains available for compatibility.
 
+The YouTube source follows downloader heartbeat presence. The public UI polls the
+lightweight availability endpoint every five seconds and disables link import when
+no configured agent has reported within 30 seconds. Both source selection and media
+preparation enforce the same rule server side. Connected agents count as available
+while busy, so their durable queue can continue to accept work. Control image:
+`vtranslatorjpe43892.azurecr.io/videotranslator/control@sha256:6dd5eb3db5f55d760a6feafceb1bdc049e8122fb00c49de6caab2d2e9587294a`.
+
 ## Images and source
 
 `engine/` captures the currently running, patched engine. Its 18 original Python

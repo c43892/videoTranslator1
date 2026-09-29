@@ -7,6 +7,11 @@
 网页 prepare → Conversation + DownloadTask 原子入库 → 家用代理 HTTPS heartbeat/claim →
 本地 yt-dlp → HTTPS 流式回传 → 私有 Blob → 原有媒体检查与报价 → 用户确认后的原有译制流程。
 
+网页每 5 秒读取公开可用性端点。只要任一已配置代理在最近 30 秒内发送过 heartbeat，
+YouTube 链接入口就保持可用；代理繁忙只会排队，不会关闭入口。所有代理均离线时，
+网页会禁用 YouTube 入口，粘贴链接和 prepare API 也会立即返回
+`youtube_proxy_unavailable`。本地文件上传不受影响。
+
 排队不持有浏览器请求或 GPU。服务端原有 SQLite 文档存储提供跨线程、跨进程事务锁；
 `download_workers` 和 `download_tasks` 同库持久化，不需要额外数据库或消息队列。
 代理密钥映射固定 worker ID；不接受客户端自行声明身份或提高并发上限。
@@ -54,8 +59,9 @@
 `deploy/azure-jp/validate-home-worker.py` 使用专门的合成测试用户，经真实 Firebase 鉴权访问 vidyi.cc，
 没有确认翻译或创建付款。
 
-- 代理离线：102.5 秒后第 10 次重试仍不可用，状态转为 `import_failed`，错误为 `youtube_proxy_unavailable`。
-- 经公开 prepare API 执行用户重试：重试计数归零，生成新的任务。
+- 新任务在没有在线代理时立即拒绝，不生成 DownloadTask；代理恢复 heartbeat 后可再次选择链接。
+- 已入队任务遇到代理离线：第 10 次间隔重试后状态转为 `import_failed`，错误为 `youtube_proxy_unavailable`。
+- 经公开 prepare API 执行用户重试前会再次检查在线代理；代理在线时重试计数归零并生成新的任务。
 - 同时准备三个原问题视频，Windows 代理主动连接公网 HTTPS；观察到两个 `leased` 和一个 `queued`。
 - 三条视频全部完整回传 Azure，私有 Blob 持久化并经真实媒体检查，均为 71,866 ms，进入可确认报价状态。
   本次三条任务总耗时 206.0 秒，其中出现一次连接超时，自动重连恢复。
