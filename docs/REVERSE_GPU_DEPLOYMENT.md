@@ -11,7 +11,7 @@ The active fallback revision is `videotranslator-gpu--pipeline-1790714723`.
 The CPU engine control, CPU worker, GPU broker and Azure T4 worker use engine
 digest `sha256:9ecd14d445f1f61c5475e60098ac3a5be3ec00d9fdc6b1f060de7b25207a44ba`;
 Studio uses control digest
-`sha256:acda8f3cddc89edb82ad54ae45a33de511fccce1e14121e82f7702f28838e1ac`.
+`sha256:20020322e89cee19377902ede13147f635745bda5ae0122eb42ee89322335374`.
 The original `azure-jp-t4` profile identifier remains in Studio for compatibility;
 GPU execution is selected by the new worker and broker configuration, not that
 display identifier.
@@ -187,6 +187,18 @@ though the required immutable image was already present and running. The verifie
 was corrected to inspect the container's configured image and to validate the
 already-running digest without an unnecessary registry pull. Its final run emitted
 `ORDERED_GPU_ROLLOUT_COMPLETE` and exited successfully.
+
+## Stage-progress UI release (2026-09-29)
+
+Commit `551d147` added a compact current-stage line beneath the progress bar in
+both the live job card and task-history detail view. It uses the engine's existing
+stage and percentage fields, includes English and Simplified Chinese labels, and
+does not change scheduling or GPU execution. Production Studio now uses immutable
+control digest
+`sha256:20020322e89cee19377902ede13147f635745bda5ae0122eb42ee89322335374`.
+Only the `web` container was recreated; engine control and GPU services were left
+running. The private and public readiness checks returned HTTP 200, and the public
+HTML and versioned JavaScript assets were verified to contain the new release.
 
 ## Local GPU performance investigation (2026-09-29)
 
