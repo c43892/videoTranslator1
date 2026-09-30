@@ -11,7 +11,7 @@ The active fallback revision is `videotranslator-gpu--pipeline-1790714723`.
 The CPU engine control, CPU worker, GPU broker and Azure T4 worker use engine
 digest `sha256:9ecd14d445f1f61c5475e60098ac3a5be3ec00d9fdc6b1f060de7b25207a44ba`;
 Studio uses control digest
-`sha256:20020322e89cee19377902ede13147f635745bda5ae0122eb42ee89322335374`.
+`sha256:978ce4ceb73f172f6ac27499b85195ccc8418d6f8207fa1c6f2ce788c4799796`.
 The original `azure-jp-t4` profile identifier remains in Studio for compatibility;
 GPU execution is selected by the new worker and broker configuration, not that
 display identifier.
@@ -193,12 +193,30 @@ already-running digest without an unnecessary registry pull. Its final run emitt
 Commit `551d147` added a compact current-stage line beneath the progress bar in
 both the live job card and task-history detail view. It uses the engine's existing
 stage and percentage fields, includes English and Simplified Chinese labels, and
-does not change scheduling or GPU execution. Production Studio now uses immutable
-control digest
+does not change scheduling or GPU execution. That release used immutable control
+digest
 `sha256:20020322e89cee19377902ede13147f635745bda5ae0122eb42ee89322335374`.
 Only the `web` container was recreated; engine control and GPU services were left
 running. The private and public readiness checks returned HTTP 200, and the public
 HTML and versioned JavaScript assets were verified to contain the new release.
+
+## Public video-link import release (2026-09-29)
+
+Commit `bcddfc5` changed the UI to describe a generic video link without
+advertising additional source sites. Studio admits safe public HTTPS URLs instead
+of rejecting every non-YouTube host. The outbound Windows download agent decides
+actual compatibility using yt-dlp's site-specific extractors; the generic extractor
+is disabled so arbitrary webpages cannot be used to reach the home network. Private
+and local addresses, URL credentials and non-default ports remain blocked. Failed,
+private, unavailable and region-restricted sources return the existing import-failed
+state with a generic unsupported-or-unavailable message.
+
+Production Studio uses immutable control digest
+`sha256:978ce4ceb73f172f6ac27499b85195ccc8418d6f8207fa1c6f2ce788c4799796`.
+Only the `web` container was recreated. The private and public readiness endpoints
+returned HTTP 200, the public assets contained only generic link wording, and the
+production container accepted and normalized a non-YouTube public URL in a read-only
+smoke check. No download or GPU job was submitted for verification.
 
 ## Local GPU performance investigation (2026-09-29)
 

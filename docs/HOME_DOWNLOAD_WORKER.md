@@ -89,3 +89,14 @@ Firebase 或支付密钥。服务端不按网站品牌拒绝链接；代理仅�
 FFmpeg，使用本机已验证的 Node 运行时，并重新注册 `VideoTranslator Home Downloader` 登录任务。
 恢复后任务处于 Running，公网心跳成功，容量为 2、活动任务为 0。临时 token 传输对象及本地中间
 注册文件均已删除；长期 token 只保留在受 ACL 保护的 `config.json` 和云端私有 `studio.env` 中。
+
+## 公共视频链接代理升级（2026-09-29）
+
+提交 `bcddfc5` 已部署。运行目录中的旧 `worker.py` 在活动任务为 0 时正常停止并备份为
+`worker.py.before-bcddfc5`，随后替换为仓库版本并重新启动原计划任务；`config.json`、worker token
+和任务计划配置均未改动。源码与运行文件 SHA-256 一致，计划任务为 Running，公网心跳正常，
+容量为 2、活动任务为 0。
+
+只读验证确认新版代理接受安全的公网视频 URL，能匹配 Vimeo 的专用 yt-dlp 提取器，并会在网络请求
+之前拒绝只能落入通用提取器的未知网页。生产站点报告下载代理在线。本次升级没有提交真实下载、
+付费或 GPU 任务。
