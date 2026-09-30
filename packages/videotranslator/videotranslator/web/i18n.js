@@ -95,3 +95,27 @@ for (const [locale, values] of Object.entries({
 })) {
  copy[locale].awaiting_capacity = values[0]; copy[locale].translationPaused = values[1];
 }
+
+const progressStageCopy = {
+ en: {
+  currentStage:'Current stage', stageImport:'Downloading source media', stageQueued:'Waiting in the translation queue',
+  stageStartingGpu:'Starting GPU service', stagePrepare:'Preparing media files', stageExtract:'Extracting audio',
+  stageSeparate:'Separating dialogue and background audio', stageTranscribe:'Transcribing speech',
+  stageSegment:'Dividing speech into timed segments', stageTranslate:'Translating dialogue',
+  stageSynthesize:'Generating dubbed speech', stageMix:'Mixing translated audio',
+  stageAssemble:'Encoding final media', stageUpload:'Publishing the result', stageComplete:'Finalizing the result',
+  stageInspecting:'Inspecting media', stageSubmitting:'Submitting the task',
+  stageProvisioning:'Preparing processing resources', stageCancelling:'Cancelling the task', stageProcessing:'Processing media',
+ },
+ zh: {
+  currentStage:'当前阶段', stageImport:'正在下载源媒体', stageQueued:'正在等待译制资源',
+  stageStartingGpu:'正在启动 GPU 服务', stagePrepare:'正在准备媒体文件', stageExtract:'正在提取音频',
+  stageSeparate:'正在分离对白与背景音', stageTranscribe:'正在识别语音',
+  stageSegment:'正在划分带时间轴的语音片段', stageTranslate:'正在翻译对白',
+  stageSynthesize:'正在生成配音', stageMix:'正在混合译制音频',
+  stageAssemble:'正在编码最终媒体', stageUpload:'正在发布译制结果', stageComplete:'正在完成结果处理',
+  stageInspecting:'正在检查媒体', stageSubmitting:'正在提交任务',
+  stageProvisioning:'正在准备处理资源', stageCancelling:'正在取消任务', stageProcessing:'正在处理媒体',
+ },
+};
+for (const [locale, entries] of Object.entries(progressStageCopy)) Object.assign(copy[locale], entries);

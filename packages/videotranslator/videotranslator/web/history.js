@@ -7,6 +7,24 @@ export function statusGroup(status, stage = '') {
 }
 const statusKeys = {queued:'statusQueued',running:'statusRunning',failed:'statusFailed',succeeded:'statusSucceeded',waiting:'statusWaiting',cancelled:'statusCancelled',expired:'statusExpired'};
 
+const stageKeys = {
+  import:'stageImport', queued:'stageQueued', starting_gpu:'stageStartingGpu',
+  prepare:'stagePrepare', extract:'stageExtract', separate:'stageSeparate',
+  transcribe:'stageTranscribe', segment:'stageSegment', translate:'stageTranslate',
+  synthesize:'stageSynthesize', mix:'stageMix', assemble:'stageAssemble',
+  upload:'stageUpload', complete:'stageComplete', done:'stageComplete',
+};
+
+export function progressStageText(job, t) {
+  const fallback = {
+    inspecting:'stageInspecting', submitting:'stageSubmitting',
+    provisioning:'stageProvisioning', cancelling:'stageCancelling',
+  }[job?.status] || 'stageProcessing';
+  const stage = t(stageKeys[job?.stage] || fallback);
+  const percent = Math.max(0, Math.min(100, Number(job?.progress_percent) || 0));
+  return `${t('currentStage')}: ${stage} · ${percent}%`;
+}
+
 export function queueMessageKey(job) {
   return ['gpu_starts_disabled', 'cost_budget_exceeded'].includes(job?.capacity_wait_reason)
     ? 'translationPaused' : 'awaiting_capacity';
@@ -72,7 +90,7 @@ export function createHistory({api, t, money, download, preview, refreshBalance}
     if (job.completed_at) line('completedTime',date(job.completed_at));
     if (statusGroup(job.status, job.stage) === 'running') {
       const progress = el('progress',''); progress.max = 100; progress.value = Math.max(0,Math.min(100,job.progress_percent || 0)); progress.ariaLabel = t('progress');
-      detail.append(progress,el('p','',t(job.status)));
+      detail.append(progress,el('small','history-stage',progressStageText(job,t)));
     }
     if (job.status === 'failed') detail.append(el('p','notice',t('failed')));
     for (const warning of job.warnings || []) detail.append(el('p','notice',warning));

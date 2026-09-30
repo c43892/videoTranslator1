@@ -1,7 +1,7 @@
-import {copy, normalizeLocale} from './i18n.js?v=20260929-youtube-availability';
+import {copy, normalizeLocale} from './i18n.js?v=20260929-stage-progress';
 import {createLanguagePicker} from './language-picker.js?v=20260923-stripe-env';
 import {createAccount} from './account.js?v=20260924-admin-pricing';
-import {createHistory, queueMessageKey} from './history.js?v=20260924-auto-queue';
+import {createHistory, progressStageText, queueMessageKey} from './history.js?v=20260929-stage-progress';
 import {authenticatedFetch} from './authenticated-request.js?v=20260923-stripe-env';
 import {createErrorNotice} from './error-notice.js?v=20260923-stripe-env';
 import {uploadBlob} from './blob-upload.js?v=20260923-azure';
@@ -231,7 +231,10 @@ function renderJob(parent) {
       const amount = job.balance_returned_cents ? ` · ${account.money(job.balance_returned_cents)}` : '';
       body.append(node('p','notice',`${t('balanceReturned')}${amount}\n${t('creditReusable')}`));
     } else if (status === 'failed') body.append(node('p','notice',t(job.charged_ledger_entry_id ? 'creditPending' : 'noTaskDebit')));
-    if (['running','provisioning','submitting'].includes(status)) {const progress = node('progress'); progress.max = 100; progress.value = job.progress_percent || 0; progress.ariaLabel = t('progress'); body.append(progress);}
+    if (['running','provisioning','submitting'].includes(status)) {
+      const progress = node('progress'); progress.max = 100; progress.value = Math.max(0,Math.min(100,job.progress_percent || 0)); progress.ariaLabel = t('progress');
+      body.append(progress,node('small','job-stage',progressStageText(job,t)));
+    }
     const choices = node('div','secondary-actions');
     if (status === 'awaiting_credits') choices.append(button(t('topup'), account.openTopup));
     if (config.processing_available !== false && status === 'awaiting_credits') choices.append(button(t('start'), () => reviewJobAction('start'), 'primary'));
