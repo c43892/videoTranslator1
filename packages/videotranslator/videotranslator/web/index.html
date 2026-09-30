@@ -5,7 +5,7 @@
   <meta name="theme-color" content="#f5f5f0">
   <title>VideoTranslator · Studio</title>
   <link rel="stylesheet" href="/assets/style.css?v=20260929-youtube-availability">
-  <script type="module" src="/assets/app.js?v=20260929-stage-progress"></script>
+  <script type="module" src="/assets/app.js?v=20260929-site-links"></script>
 </head>
 <body>
   <aside class="sidebar">
@@ -35,7 +35,7 @@
         <div id="history-list" class="history-list"></div></div><section id="history-detail" class="history-detail" aria-live="polite" hidden></section>
       </section>
       <div class="conversation">
-        <section class="intro"><h1 data-i18n="simpleTitle">What would you like to translate?</h1><p class="intro-subtitle" data-i18n="simpleSubtitle">Add a YouTube link, video or audio file.</p><p class="intro-rate" data-i18n="rateNotice">…</p></section>
+        <section class="intro"><h1 data-i18n="simpleTitle">What would you like to translate?</h1><p class="intro-subtitle" data-i18n="simpleSubtitle">Add a video link, video or audio file.</p><p class="intro-rate" data-i18n="rateNotice">…</p></section>
         <div id="demo" class="notice" hidden data-i18n="demo">Preview environment · Translation processing is simulated.</div>
         <div id="verify-panel" class="notice" hidden><p data-i18n="email_not_verified">Please verify your email before continuing.</p><button id="resend-verification" class="chip" data-i18n="resendVerification">Resend verification</button><button id="check-verification" class="chip" data-i18n="checkVerification">I have verified</button><p id="verification-status" role="status"></p></div>
         <div id="messages" role="log" aria-live="polite" aria-relevant="additions"></div>
@@ -43,7 +43,7 @@
         <div id="error" class="error" role="alert" hidden></div>
       </div>
     </div>
-    <footer class="composer-wrap"><form id="composer"><button type="button" id="attach" class="attach" aria-label="Upload video">＋</button><textarea id="message" rows="1" maxlength="2000" data-placeholder="placeholder" placeholder="Paste a YouTube link, or tell me what you have in mind…" aria-label="Message"></textarea><button id="send" type="submit" aria-label="Send message">↑</button></form><p class="composer-hint" data-i18n="hint">Choose an option or write naturally. Nothing starts until you confirm.</p></footer>
+    <footer class="composer-wrap"><form id="composer"><button type="button" id="attach" class="attach" aria-label="Upload video">＋</button><textarea id="message" rows="1" maxlength="2000" data-placeholder="placeholder" placeholder="Paste a video link, or tell me what you have in mind…" aria-label="Message"></textarea><button id="send" type="submit" aria-label="Send message">↑</button></form><p class="composer-hint" data-i18n="hint">Choose an option or write naturally. Nothing starts until you confirm.</p></footer>
     <input id="file" type="file" accept="video/*,audio/*,.mp4,.mkv,.mov,.webm,.avi,.m4v,.mp3,.wav,.m4a,.flac,.aac,.ogg" hidden>
   </main>
   <dialog id="auth-dialog" aria-labelledby="auth-title"><div class="dialog-heading"><h2 id="auth-title" data-i18n="accountTitle">Your account</h2><button class="text-button" data-close-dialog="auth-dialog" data-i18n="close">Close</button></div>

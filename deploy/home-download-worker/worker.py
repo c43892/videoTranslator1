@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import contextlib
+import ipaddress
 import json
 import logging
 from logging.handlers import RotatingFileHandler
@@ -19,21 +20,50 @@ import sys
 import tempfile
 import threading
 import time
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 import httpx
 
 ROOT = Path(__file__).resolve().parent
 LOG = logging.getLogger("home-download-worker")
 CAPACITY = 2
+_EXTRACTORS = None
 
 
 def canonical_url(value):
     parsed = urlsplit(value)
-    if (parsed.scheme != "https" or parsed.netloc != "www.youtube.com" or parsed.path != "/watch"
-            or not re.fullmatch(r"v=[A-Za-z0-9_-]{11}", parsed.query) or parsed.fragment):
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("invalid_youtube_url") from exc
+    if parsed.scheme != "https" or parsed.username or parsed.password or port or parsed.fragment:
         raise ValueError("invalid_youtube_url")
-    return value
+    host = (parsed.hostname or "").lower()
+    if (host == "www.youtube.com" and parsed.path == "/watch"
+            and re.fullmatch(r"v=[A-Za-z0-9_-]{11}", parsed.query)):
+        return value
+    if host == "www.pornhub.com" and parsed.path == "/view_video.php":
+        keys = parse_qs(parsed.query).get("viewkey", [])
+        if len(keys) == 1 and re.fullmatch(r"[A-Za-z0-9]+", keys[0]):
+            return f"https://www.pornhub.com/view_video.php?viewkey={keys[0]}"
+    if not host or "." not in host or host == "localhost" or host.endswith((".localhost", ".local", ".lan", ".internal")):
+        raise ValueError("invalid_youtube_url")
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        address = None
+    if address is not None and not address.is_global:
+        raise ValueError("invalid_youtube_url")
+    return parsed._replace(fragment="").geturl()
+
+
+def supported_extractor(url):
+    """Reject the generic extractor so arbitrary sites cannot reach a home LAN."""
+    global _EXTRACTORS
+    if _EXTRACTORS is None:
+        from yt_dlp.extractor import gen_extractors
+        _EXTRACTORS = tuple(ie for ie in gen_extractors() if ie.IE_NAME != "generic")
+    return any(ie.suitable(url) for ie in _EXTRACTORS)
 
 
 def load_config(path):
@@ -65,6 +95,8 @@ def terminate(process):
 
 def download(task, directory, cancelled, config):
     url = canonical_url(task["url"])
+    if not supported_extractor(url):
+        raise ValueError("unsupported_video_url")
     limit = min(int(task["max_bytes"]), 2 * 1024**3)
     ffmpeg = config.get("ffmpeg_path") or shutil.which("ffmpeg")
     node = config.get("node_path") or shutil.which("node")
@@ -147,6 +179,7 @@ class Agent:
         except Exception as exc:
             # Never log exception messages, headers, credentials, or signed URLs.
             safe_codes = {"insufficient_disk_space", "missing_ffmpeg_or_node", "invalid_youtube_url",
+                          "unsupported_video_url",
                           "download_disk_limit", "download_cancelled_or_timed_out", "youtube_download_failed",
                           "invalid_download_size", "lease_lost"}
             code = str(exc) if str(exc) in safe_codes else type(exc).__name__

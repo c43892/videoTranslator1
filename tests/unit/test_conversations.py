@@ -14,6 +14,8 @@ from videotranslator.domain.models import Job, JobOutbox, UploadSession, MediaIn
 from videotranslator.config import Settings
 
 URL = "https://www.youtube.com/watch?v=KlvBiyWSI-Y"
+PORNHUB_URL = "https://www.pornhub.com/view_video.php?viewkey=ph5af5fef7c2aa7"
+UNKNOWN_VIDEO_URL = "https://videos.example.com/watch/123"
 AUTH = {"Authorization": "Bearer fake:chat-user"}
 
 
@@ -65,6 +67,19 @@ def test_url_only_preserves_browser_locale_and_target_choice_does_not_change_ui(
     assert draft["locale"] == "zh" and draft["step"] == "target"
     draft = edit(client, draft, choice="target", value="en")
     assert draft["locale"] == "zh" and draft["target_language"] == "en"
+
+
+def test_pornhub_single_video_is_canonicalized_and_accepted(client):
+    supplied = "https://fr.pornhub.com/video/show?viewkey=ph5af5fef7c2aa7&utm_source=test"
+    draft = edit(client, create(client, "zh-CN"), text=supplied)
+    assert draft["youtube_url"] == PORNHUB_URL
+    assert draft["source_kind"] == "youtube" and draft["step"] == "target"
+
+
+def test_other_public_video_url_is_queued_for_download_agent(client):
+    draft = edit(client, create(client, "zh-CN"), text=UNKNOWN_VIDEO_URL + "#share")
+    assert draft["youtube_url"] == UNKNOWN_VIDEO_URL
+    assert draft["source_kind"] == "youtube" and draft["step"] == "target"
 
 
 def test_first_reply_switches_and_explicit_preference_sticks(client):
@@ -185,8 +200,8 @@ def test_continue_rejects_active_tasks_and_other_users(client, container):
     assert client.post(path,json={'revision':draft['revision']},headers={'Authorization':'Bearer fake:other'}).status_code == 403
 
 
-@pytest.mark.parametrize("url", ["https://youtube.com.evil.test/watch?v=KlvBiyWSI-Y", "file:///etc/passwd", "http://localhost/a", "https://user@youtube.com/watch?v=KlvBiyWSI-Y", "https://youtube.com/playlist?list=abc", "https://youtu.be/no"])
-def test_youtube_allowlist(url):
+@pytest.mark.parametrize("url", ["file:///etc/passwd", "http://localhost/a", "https://127.0.0.1/video", "https://192.168.1.1/video", "https://media.internal/video", "https://example.com:bad/video", "https://user@youtube.com/watch?v=KlvBiyWSI-Y", "https://youtube.com/playlist?list=abc", "https://youtu.be/no", "https://user@www.pornhub.com/view_video.php?viewkey=ph5af5fef7c2aa7"])
+def test_video_url_safety_boundary(url):
     with pytest.raises(ValueError):
         youtube_url(url)
 

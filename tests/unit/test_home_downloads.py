@@ -19,6 +19,8 @@ from videotranslator.domain.models import Job, MediaInspectionResult
 TOKEN = "home-test-" + "a" * 40
 OTHER = "home-test-" + "b" * 40
 URL = "https://www.youtube.com/watch?v=DlldBRDJXE4"
+PORNHUB_URL = "https://www.pornhub.com/view_video.php?viewkey=ph5af5fef7c2aa7"
+VIMEO_URL = "https://vimeo.com/123456789"
 
 
 @pytest.fixture
@@ -282,7 +284,12 @@ def test_worker_configuration_rejects_remote_http_and_url_credentials(tmp_path):
         path.write_text(json.dumps({"server_url": server, "token": TOKEN}))
         with pytest.raises(ValueError):
             module.load_config(path)
-    for bad_url in ("file:///etc/passwd", "https://www.youtube.com.evil/watch?v=DlldBRDJXE4"):
+    for bad_url in ("file:///etc/passwd", "https://127.0.0.1/video", "https://192.168.1.1/video",
+                    "https://media.internal/video"):
         with pytest.raises(ValueError):
             module.canonical_url(bad_url)
     assert module.canonical_url(URL) == URL
+    assert module.canonical_url(PORNHUB_URL) == PORNHUB_URL
+    assert module.canonical_url(VIMEO_URL) == VIMEO_URL
+    assert module.supported_extractor(VIMEO_URL)
+    assert not module.supported_extractor("https://example.com/video/1")

@@ -1,4 +1,4 @@
-import {copy, normalizeLocale} from './i18n.js?v=20260929-stage-progress';
+import {copy, normalizeLocale} from './i18n.js?v=20260929-site-links';
 import {createLanguagePicker} from './language-picker.js?v=20260923-stripe-env';
 import {createAccount} from './account.js?v=20260924-admin-pricing';
 import {createHistory, progressStageText, queueMessageKey} from './history.js?v=20260929-stage-progress';
