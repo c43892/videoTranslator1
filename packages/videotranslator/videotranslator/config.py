@@ -74,6 +74,20 @@ class Settings:
             return self.engine_backend in {"docker", "private"}
         return True
 
+    @property
+    def billing_enabled(self) -> bool:
+        """Whether jobs use the user balance and billing ledger.
+
+        Free processing is deliberately limited to the local demo profile so
+        a disabled payment gateway cannot accidentally make a production
+        deployment free.
+        """
+        return not (
+            self.profile == "local-full"
+            and self.auth_mode == "demo"
+            and self.payment_mode == "disabled"
+        )
+
 
 def _bool(env: str, default: bool) -> bool:
     raw = os.environ.get(env)

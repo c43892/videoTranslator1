@@ -1,7 +1,7 @@
-import {copy, normalizeLocale} from './i18n.js?v=20260929-site-links';
+import {copy, normalizeLocale} from './i18n.js?v=20260930-local-demo-free';
 import {createLanguagePicker} from './language-picker.js?v=20260923-stripe-env';
-import {createAccount} from './account.js?v=20260924-admin-pricing';
-import {createHistory, progressStageText, queueMessageKey} from './history.js?v=20260929-stage-progress';
+import {createAccount} from './account.js?v=20260930-local-demo-free';
+import {createHistory, progressStageText, queueMessageKey} from './history.js?v=20260930-local-demo-free';
 import {authenticatedFetch} from './authenticated-request.js?v=20260923-stripe-env';
 import {createErrorNotice} from './error-notice.js?v=20260923-stripe-env';
 import {uploadBlob} from './blob-upload.js?v=20260923-azure';
@@ -182,6 +182,7 @@ function render(scroll = false) {
 }
 
 function renderReview(parent) {
+  const freeMode = config.billing_enabled === false;
   const card = node('div','review-card'); const heading = node('div','card-heading',t('confirmTitle'));
   heading.append(node('span','review-badge',t('ready'))); card.append(heading);
   for (const [label,value,choice] of [['sourceLabel',draft.source_kind === 'youtube' ? draft.youtube_url : `${draft.filename} · ${(draft.size_bytes / 1024 / 1024).toFixed(1)} MB`,'edit_source'],['targetLabel',t(draft.target_language),'edit_target']]) {
@@ -194,21 +195,24 @@ function renderReview(parent) {
     const quote = draft.quote, details = node('div','quote-details');
     const line = (label, value, extra = '') => {const row = node('div',`quote-line ${extra}`); row.append(node('span','',t(label)),node('strong','',value)); details.append(row);};
     line('duration', `${(quote.duration_ms / 60000).toFixed(2)} ${t('minutes')}`);
-    line('unitPrice', `${account.money(quote.rate_cents_per_minute)} / ${t('minute')}`);
-    line('totalCost', `${account.money(quote.amount_cents)}`, 'total');
-    if (account.balance !== null) {
+    if (freeMode) line('localDemoCost', t('free'), 'total');
+    else {
+      line('unitPrice', `${account.money(quote.rate_cents_per_minute)} / ${t('minute')}`);
+      line('totalCost', `${account.money(quote.amount_cents)}`, 'total');
+    }
+    if (!freeMode && account.balance !== null) {
       line('currentBalance', `${account.money(account.balance)}`);
       if (account.balance >= quote.amount_cents) line('remainingBalance', `${account.money(account.balance - quote.amount_cents)}`);
       else details.append(node('p','low-balance',t('insufficient_credits')));
     }
-    details.append(node('p','',t('roundingNotice'))); card.insertBefore(details,footer);
+    details.append(node('p','',t(freeMode ? 'freeModeNotice' : 'roundingNotice'))); card.insertBefore(details,footer);
     if (config.processing_available === false) footer.append(node('p','notice',t('processing_unavailable')));
-    else if (account.balance !== null && account.balance < quote.amount_cents) footer.append(button(t('topup'), account.openTopup, 'primary'));
-    else {const start = button(`${t('confirm')} · ${account.money(quote.amount_cents)}`, confirm, 'primary'); start.dataset.unavailable = String(account.balance === null); footer.append(start);}
-    footer.append(node('p','',t('confirmHint')));
-    footer.append(node('p','',t('failureCreditPolicy')));
+    else if (!freeMode && account.balance !== null && account.balance < quote.amount_cents) footer.append(button(t('topup'), account.openTopup, 'primary'));
+    else {const start = button(freeMode ? t('confirm') : `${t('confirm')} · ${account.money(quote.amount_cents)}`, confirm, 'primary'); start.dataset.unavailable = String(!freeMode && account.balance === null); footer.append(start);}
+    footer.append(node('p','',t(freeMode ? 'freeConfirmHint' : 'confirmHint')));
+    if (!freeMode) footer.append(node('p','',t('failureCreditPolicy')));
   } else {
-    footer.append(button(t('prepareQuote'), prepare, 'primary'),node('p','',t('prepareHint')));
+    footer.append(button(t(freeMode ? 'prepareMedia' : 'prepareQuote'), prepare, 'primary'),node('p','',t(freeMode ? 'prepareFreeHint' : 'prepareHint')));
   }
 }
 
@@ -227,16 +231,16 @@ function renderJob(parent) {
   for (const warning of job?.warnings || []) body.append(node('p', 'notice', warning));
   if (job) {
     body.append(node('div','job-id',job.job_id));
-    if (job.refund_status === 'completed') {
+    if (config.billing_enabled !== false && job.refund_status === 'completed') {
       const amount = job.balance_returned_cents ? ` · ${account.money(job.balance_returned_cents)}` : '';
       body.append(node('p','notice',`${t('balanceReturned')}${amount}\n${t('creditReusable')}`));
-    } else if (status === 'failed') body.append(node('p','notice',t(job.charged_ledger_entry_id ? 'creditPending' : 'noTaskDebit')));
+    } else if (config.billing_enabled !== false && status === 'failed') body.append(node('p','notice',t(job.charged_ledger_entry_id ? 'creditPending' : 'noTaskDebit')));
     if (['running','provisioning','submitting'].includes(status)) {
       const progress = node('progress'); progress.max = 100; progress.value = Math.max(0,Math.min(100,job.progress_percent || 0)); progress.ariaLabel = t('progress');
       body.append(progress,node('small','job-stage',progressStageText(job,t)));
     }
     const choices = node('div','secondary-actions');
-    if (status === 'awaiting_credits') choices.append(button(t('topup'), account.openTopup));
+    if (config.billing_enabled !== false && status === 'awaiting_credits') choices.append(button(t('topup'), account.openTopup));
     if (config.processing_available !== false && status === 'awaiting_credits') choices.append(button(t('start'), () => reviewJobAction('start'), 'primary'));
     if (['awaiting_capacity','queued','submitting','provisioning','running'].includes(status)) choices.append(button(t('cancel'), () => jobAction('cancel')));
     if (status === 'succeeded') {
@@ -300,8 +304,9 @@ async function reviewJobAction(action) {
   const amount = draft.job.quoted_point_units;
   $('actions').replaceChildren();
   const card = node('div','review-card'), body = node('div','job-body');
-  body.append(node('p','',`${t('totalCost')}: ${account.money(amount)}`),node('p','',t('confirmHint')));
-  body.append(button(`${t('confirm')} · ${account.money(amount)}`, () => jobAction(action), 'primary'),button(t('back'), async () => render()));
+  if (config.billing_enabled === false) body.append(node('p','',t('freeConfirmHint')));
+  else body.append(node('p','',`${t('totalCost')}: ${account.money(amount)}`),node('p','',t('confirmHint')));
+  body.append(button(config.billing_enabled === false ? t('confirm') : `${t('confirm')} · ${account.money(amount)}`, () => jobAction(action), 'primary'),button(t('back'), async () => render()));
   card.append(body); $('actions').append(card);
 }
 async function jobAction(action) {
@@ -432,6 +437,7 @@ async function boot() {
   try {
     config = await fetch('/api/v1/chat/config').then(response => response.json());
     $('demo').hidden = !config.demo;
+    document.querySelector('.intro-rate').hidden = config.billing_enabled === false;
     adminPricing = createAdminPricing({api, language:() => language, updated:price => {Object.assign(config, price); render();}});
     account = await createAccount({config,api,t,report:error => showError(error, {background:true, source:'balance'}),changed:async user => {
       if (owner === user?.uid && verified === !!user?.emailVerified && (!verified || draft)) return;
@@ -448,7 +454,7 @@ async function boot() {
   } catch (error) {showError(error);} finally {setBusy(false);}
 }
 document.addEventListener('balance-updated', () => {errorNotice.recovered('balance'); if (draft?.status === 'draft' && draft.quote) render();});
-history = createHistory({api,t,money:cents => account.money(cents),download:downloadJob,preview:previewResult,refreshBalance:() => account.refresh()});
+history = createHistory({api,t,money:cents => account.money(cents),download:downloadJob,preview:previewResult,refreshBalance:() => account.refresh(),billingEnabled:() => config?.billing_enabled !== false});
 boot();
 
 async function refreshYouTubeAvailability() {

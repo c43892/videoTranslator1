@@ -127,6 +127,7 @@ def build_container(settings: Settings | None = None) -> Container:
         store, pricing, settings.cost, max_active_jobs_per_user=settings.max_active_jobs_per_user,
         processing_available=settings.processing_available,
         health_supervised=profile == "azure-jp-t4",
+        billing_enabled=settings.billing_enabled,
     )
     billing_uow = BillingUnitOfWork(store)
     inspector = FFmpegMediaInspector()

@@ -57,6 +57,7 @@ def install_conversation_routes(app, container, identity_dependency, http_error)
         return {"local": local, "profile": container.settings.profile,
                 "youtube_available": not service.home_downloads or service.home_downloads.available(),
                 "processing_available": container.settings.processing_available,
+                "billing_enabled": container.settings.billing_enabled,
                 "demo": container.settings.profile == "test" or not container.settings.processing_available,
                 "auth_mode": "demo" if container.settings.profile == "test" else container.settings.auth_mode,
                 "firebase": container.settings.firebase_web_config,

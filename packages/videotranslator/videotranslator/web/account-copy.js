@@ -8,6 +8,19 @@ zh: {
  source:'选择视频或音频',noteDetail:'让更多人听懂你的故事。',eyebrow:'你的故事，更多可能',subtitle:'告诉我你想翻译什么，我们一步步完成。',welcome:'你好！一起为你的视频或音频换一种语言吧。\n你想从哪里开始？',file:'选择视频或音频文件。我们会先检查时长，并在确认译制前展示费用。',targetPrompt:'你想翻译成哪种语言？',reviewPrompt:'请核对来源和目标语言，然后检查媒体，查看准确费用。',upload:'上传视频或音频',selectFile:'选择视频或音频',sourceLabel:'媒体来源',uploading:'正在上传媒体…',reselect:'请重新选择同一个文件，继续上传。',wrongFile:'请选择同一个文件，文件名和大小需要一致。',video_required:'支持 MP4、MKV、MOV、WebM、AVI、M4V、MP3、WAV、M4A、FLAC、AAC 和 OGG。',invalid_file_size:'文件大小须大于 0，且不超过 2 GB。',queued:'媒体已进入译制队列。',inspecting:'正在核实时长并计算费用…',running:'正在译制媒体…',succeeded:'译制完成了。',download:'下载译制结果',newSource:'修改媒体来源',fileSelected:'已选择文件',attach:'添加视频或音频',nothing:'告诉我你的视频或音频信息，或者点击下面的选项。',
 }};
 
+Object.assign(accountCopy.en, {
+ localDemoCost:'Local demo', free:'Free',
+ freeModeNotice:'Local demo mode does not check or deduct an account balance.',
+ freeConfirmHint:'This local demo runs on the local GPU without checking or deducting balance.',
+ prepareMedia:'Check media  →', prepareFreeHint:'Uploads or downloads the media to measure its duration before local processing.'
+});
+Object.assign(accountCopy.zh, {
+ localDemoCost:'本地演示模式', free:'免费',
+ freeModeNotice:'本地演示模式不检查余额，也不扣除余额。',
+ freeConfirmHint:'本地演示任务将使用本机 GPU，不检查余额，也不扣除余额。',
+ prepareMedia:'检查媒体  →', prepareFreeHint:'先上传或下载媒体并核实时长，然后在本机处理。'
+});
+
 const browserAuthCopy = {
  en:'If Google sign-in cannot open or finish in an in-app browser, open this page in Chrome or Edge, or use email below. Browser sessions are separate.',
  zh:'如果内嵌浏览器无法打开或完成 Google 登录，请在外部 Chrome 或 Edge 中打开本页，或使用下方邮箱登录。不同浏览器的登录状态独立。',

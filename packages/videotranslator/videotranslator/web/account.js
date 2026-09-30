@@ -24,13 +24,15 @@ export async function createAccount({config, api, t, changed, report}) {
     $('payment-done').hidden = paymentState !== 'succeeded';
   }
   function localize() {
+    const freeMode = config.billing_enabled === false;
     if (auth) auth.languageCode = document.documentElement.lang === 'zh' ? 'zh-CN' : document.documentElement.lang;
     $('auth-error').textContent = authErrorKeys.map(t).join(' ');
     $('balance-label').textContent = t(config.auth_mode === 'demo' ? 'demoBalance' : 'balance');
     $('balance-value').textContent = balance === null ? '—' : `${money(balance)}`;
     $('topup-balance').textContent = $('balance-value').textContent;
     $('account-name').textContent = user?.email || t('guest');
-    $('account-menu').hidden = !user;
+    $('balance-label').closest('.wallet').hidden = freeMode;
+    $('account-menu').hidden = !user || freeMode;
     $('signin').hidden = !!user; $('signout').hidden = !user || config.auth_mode === 'demo';
     $('topup').disabled = !user?.emailVerified || config.auth_mode === 'demo';
     $('verify-panel').hidden = !user || user.emailVerified;
@@ -52,6 +54,11 @@ export async function createAccount({config, api, t, changed, report}) {
   }
   async function refresh() {
     if (!user) return;
+    if (config.billing_enabled === false) {
+      balance = null;
+      document.dispatchEvent(new CustomEvent('account-updated', {detail:{isAdmin:false}}));
+      return;
+    }
     const currentGeneration = generation;
     try {
       const me = await api('/me');

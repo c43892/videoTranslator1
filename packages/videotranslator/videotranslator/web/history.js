@@ -30,7 +30,7 @@ export function queueMessageKey(job) {
     ? 'translationPaused' : 'awaiting_capacity';
 }
 
-export function createHistory({api, t, money, download, preview, refreshBalance}) {
+export function createHistory({api, t, money, download, preview, refreshBalance, billingEnabled = () => true}) {
   const $ = id => document.getElementById(id);
   const el = (tag, cls, text) => {const item = document.createElement(tag); item.className = cls; if (text !== undefined) item.textContent = text; return item;};
   let jobs = [], selected = '', generation = 0, loading = false, allowed = false, poll, chatScroll = 0, listScroll = 0, detailSignature = '';
@@ -52,10 +52,11 @@ export function createHistory({api, t, money, download, preview, refreshBalance}
       const name = el('button','history-task-name'); name.type = 'button'; name.dataset.jobId = job.job_id; name.dataset.action = 'open';
       name.append(el('strong','',job.original_filename || job.job_id));
       const duration = job.duration_ms ? `${(job.duration_ms/60000).toFixed(2)} ${t('minutes')}` : '—';
-      name.append(el('span','task-meta',`${t(job.media_type === 'audio' ? 'mediaAudio' : 'mediaVideo')} → ${t(job.target_language)} · ${duration} · ${money(job.quoted_point_units)}`));
+      const metadata = `${t(job.media_type === 'audio' ? 'mediaAudio' : 'mediaVideo')} → ${t(job.target_language)} · ${duration}`;
+      name.append(el('span','task-meta',billingEnabled() ? `${metadata} · ${money(job.quoted_point_units)}` : metadata));
       name.onclick = () => showDetail(job.job_id);
       const state = el('div','history-task-state'); state.append(badge(job));
-      if (job.refund_status === 'completed') state.append(el('small','',t('balanceReturned')));
+      if (billingEnabled() && job.refund_status === 'completed') state.append(el('small','',t('balanceReturned')));
       if (statusGroup(job.status,job.stage) === 'running') state.append(el('small','',`${job.progress_percent || 0}%`));
       const actions = el('div','history-task-actions');
       const detailButton = el('button','text-button',t('viewTask')); detailButton.type = 'button'; detailButton.dataset.jobId = job.job_id; detailButton.dataset.action = 'detail';
@@ -78,12 +79,12 @@ export function createHistory({api, t, money, download, preview, refreshBalance}
     const line = (key, value) => {const row = el('div','history-detail-row'); row.append(el('span','',t(key)),el('strong','',value)); detail.append(row);};
     line('taskId',job.job_id); line('targetLabel',t(job.target_language));
     line('duration',job.duration_ms ? `${(job.duration_ms / 60000).toFixed(2)} ${t('minutes')}` : '—');
-    line('totalCost', `${money(job.quoted_point_units)}`);
-    if (job.refund_status === 'completed') {
+    if (billingEnabled()) line('totalCost', `${money(job.quoted_point_units)}`);
+    if (billingEnabled() && job.refund_status === 'completed') {
       line('balanceReturned',job.balance_returned_cents ? `${money(job.balance_returned_cents)}` : t('balanceReturned'));
       if (job.balance_returned_at) line('balanceReturnedTime',date(job.balance_returned_at));
       detail.append(el('p','notice',t('creditReusable')));
-    } else if (job.status === 'failed') detail.append(el('p','notice',t(job.charged_ledger_entry_id ? 'creditPending' : 'noTaskDebit')));
+    } else if (billingEnabled() && job.status === 'failed') detail.append(el('p','notice',t(job.charged_ledger_entry_id ? 'creditPending' : 'noTaskDebit')));
     line('createdTime',date(job.created_at));
     if (job.queued_at) line('queuedTime',date(job.queued_at));
     if (job.started_at) line('startedTime',date(job.started_at));

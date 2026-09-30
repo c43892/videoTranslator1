@@ -234,7 +234,7 @@ class ConversationService:
                 raise InvalidTransition("media_not_ready")
             user = tx.get(User, owner)
             existing = tx.get(Job, draft.job_id)
-            if not existing and (not user or user.point_balance_units < draft.quoted_cents):
+            if self.funding.billing_enabled and not existing and (not user or user.point_balance_units < draft.quoted_cents):
                 raise InsufficientCredits()
             draft.status = "confirming"
             tx.put(draft, key)

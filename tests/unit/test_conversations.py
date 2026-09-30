@@ -148,6 +148,36 @@ def test_upload_confirmation_is_atomic_and_idempotent(client, container):
         assert len(tx.query(Job)) == len(tx.query(LedgerEntry)) == 1
 
 
+def test_local_demo_confirmation_does_not_check_or_deduct_balance(client, container):
+    container.funding.billing_enabled = False
+    draft = edit(client, create(client), filename="free.mp4", size_bytes=4)
+    draft = edit(client, draft, choice="target", value="zh")
+    prepared = prepare(client, draft).json()
+    upload = prepared["upload_id"]
+    assert client.put(f"/api/v1/uploads/{upload}/content", content=b"abcd").status_code == 200
+    quoted = client.post(f"/api/v1/conversations/{draft['conversation_id']}/inspect").json()
+    response = confirm(client, quoted)
+    assert response.status_code == 200, response.text
+    with container.store.transaction() as tx:
+        user = tx.get(User, "chat-user")
+        job = tx.get(Job, quoted["job_id"])
+        assert user.point_balance_units == 0
+        assert job.status == "queued"
+        assert job.charged_ledger_entry_id is None
+        assert tx.query(LedgerEntry, where=("job_id", "==", job.job_id)) == []
+
+
+def test_chat_config_marks_only_local_demo_as_free(container):
+    local_demo = replace(container.settings, profile="local-full", engine_backend="docker", auth_mode="demo", payment_mode="disabled")
+    container.settings = local_demo
+    container.funding.billing_enabled = local_demo.billing_enabled
+    response = TestClient(create_app(container)).get("/api/v1/chat/config")
+    assert response.status_code == 200
+    assert response.json()["billing_enabled"] is False
+    assert replace(local_demo, auth_mode="firebase").billing_enabled is True
+    assert replace(local_demo, profile="azure-jp-t4", auth_mode="firebase").billing_enabled is True
+
+
 def test_ownership_and_verification(client):
     draft = create(client)
     path = f"/api/v1/conversations/{draft['conversation_id']}"

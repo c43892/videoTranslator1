@@ -1,4 +1,4 @@
-import {accountCopy} from './account-copy.js?v=20260924-admin-pricing';
+import {accountCopy} from './account-copy.js?v=20260930-local-demo-free';
 import {historyCopy} from './history-copy.js';
 export const copy = {
 en: {

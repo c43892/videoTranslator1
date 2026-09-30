@@ -106,7 +106,7 @@ class CancelResultView:
 class JobFundingUnitOfWork:
     """Owns the transaction boundary for charge/enqueue/cancel/fail (§6.5)."""
 
-    def __init__(self, store: Store, pricing: PricingConfig, cost: CostPolicy, *, max_active_jobs_per_user: int = 1, processing_available: bool = True, health_supervised: bool = False):
+    def __init__(self, store: Store, pricing: PricingConfig, cost: CostPolicy, *, max_active_jobs_per_user: int = 1, processing_available: bool = True, health_supervised: bool = False, billing_enabled: bool = True):
         self._store = store
         self._pricing = pricing
         from .pricing import PricingService
@@ -115,6 +115,7 @@ class JobFundingUnitOfWork:
         self._max_active = max_active_jobs_per_user
         self.processing_available = processing_available
         self.health_supervised = health_supervised
+        self.billing_enabled = billing_enabled
 
     def require_processing(self) -> None:
         if not self.processing_available:
@@ -138,10 +139,10 @@ class JobFundingUnitOfWork:
             raise DomainError("account suspended", code=ErrorCode.FORBIDDEN)
 
         # Admission must reserve the real worst case, including the first attempt.
-        # Previously the budget check saw zero before _reserve_and_charge filled this.
+        # The budget check needs the real worst case before reservation and enqueue.
         job.max_runtime_seconds = job.max_runtime_seconds or max_runtime_seconds(job.duration_ms)
 
-        if user.point_balance_units < job.quoted_point_units:
+        if self.billing_enabled and user.point_balance_units < job.quoted_point_units:
             job.capacity_wait_reason, job.capacity_next_check_at = "", 0
             if job.status != JobStatus.AWAITING_CREDITS:
                 self._move(tx, job, JobStatus.AWAITING_CREDITS)
@@ -158,7 +159,7 @@ class JobFundingUnitOfWork:
                 tx.put(job, job.job_id)
             return ChargeResult(job, "awaiting_capacity", reason)
 
-        self._reserve_and_charge(tx, job, user, now)
+        self._reserve_and_enqueue(tx, job, user, now)
         return ChargeResult(job, "queued")
 
     def _admission_block_reason(self, tx: Tx, job: Job, now: int) -> str | None:
@@ -179,7 +180,7 @@ class JobFundingUnitOfWork:
         counter = tx.get(CapacityCounter, "global")
         if counter is not None and counter.reserved_gpu_seconds >= cost.capacity_block_gpu_seconds:
             return "backlog_exceeded"
-        if cost.enforce_budgets:
+        if self.billing_enabled and cost.enforce_budgets:
             day_id, month_id = _period_ids(now)
             reservation_amount = self._reservation_amount(job)
             for period_id in (day_id, month_id):
@@ -198,7 +199,7 @@ class JobFundingUnitOfWork:
         # For health-supervised cloud jobs this is an admission estimate, not a run cap.
         return -(-self._cost.hourly_rate_minor * job.max_runtime_seconds // 3600)
 
-    def _reserve_and_charge(self, tx: Tx, job: Job, user: User, now: int) -> None:
+    def _reserve_and_enqueue(self, tx: Tx, job: Job, user: User, now: int) -> None:
         cost = self._cost
         job.max_runtime_seconds = job.max_runtime_seconds or max_runtime_seconds(job.duration_ms)
         job.estimated_gpu_seconds = job.estimated_gpu_seconds or estimated_gpu_seconds(
@@ -214,7 +215,7 @@ class JobFundingUnitOfWork:
         counter.reserved_gpu_seconds += job.estimated_gpu_seconds
         tx.put(counter, "global")
 
-        if cost.enforce_budgets:
+        if self.billing_enabled and cost.enforce_budgets:
             for period_id in (day_id, month_id):
                 period = tx.get(CostBudgetPeriod, period_id)
                 if period is None:
@@ -238,23 +239,23 @@ class JobFundingUnitOfWork:
             tx.insert(reservation, reservation.reservation_id)
             job.cost_reservation_id = reservation.reservation_id
 
-        charge_key = job_charge_key(job.job_id)
-        entry = LedgerEntry(
-            ledger_entry_id=ledger_id_for(charge_key),
-            user_id=user.user_id,
-            delta_units=-job.quoted_point_units,
-            entry_type=LedgerEntryType.JOB_CHARGE,
-            job_id=job.job_id,
-            balance_after_units=user.point_balance_units - job.quoted_point_units,
-            idempotency_key=charge_key,
-            created_at=now,
-        )
-        tx.insert(entry, entry.ledger_entry_id)
-        user.point_balance_units = entry.balance_after_units
-        user.updated_at = now
-        tx.put(user, user.user_id)
-
-        job.charged_ledger_entry_id = entry.ledger_entry_id
+        if self.billing_enabled:
+            charge_key = job_charge_key(job.job_id)
+            entry = LedgerEntry(
+                ledger_entry_id=ledger_id_for(charge_key),
+                user_id=user.user_id,
+                delta_units=-job.quoted_point_units,
+                entry_type=LedgerEntryType.JOB_CHARGE,
+                job_id=job.job_id,
+                balance_after_units=user.point_balance_units - job.quoted_point_units,
+                idempotency_key=charge_key,
+                created_at=now,
+            )
+            tx.insert(entry, entry.ledger_entry_id)
+            user.point_balance_units = entry.balance_after_units
+            user.updated_at = now
+            tx.put(user, user.user_id)
+            job.charged_ledger_entry_id = entry.ledger_entry_id
         job.capacity_wait_reason, job.capacity_next_check_at = "", 0
         job.execution_deadline_at = (None if self.health_supervised else
             now + (cost.provisioning_allowance_s + job.max_runtime_seconds) * 1000)
@@ -353,7 +354,7 @@ class JobFundingUnitOfWork:
             if job.status == JobStatus.INSPECTING:
                 raise InvalidTransition("job is still inspecting")
             user = tx.get(User, job.owner_user_id)
-            if user is not None and user.point_balance_units < job.quoted_point_units:
+            if self.billing_enabled and user is not None and user.point_balance_units < job.quoted_point_units:
                 raise InsufficientCredits("balance below quote")
             return self._charge_tx(tx, job, now)
 

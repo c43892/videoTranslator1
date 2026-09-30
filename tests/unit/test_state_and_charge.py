@@ -121,6 +121,18 @@ class TestCharge:
         with container.store.transaction() as tx:
             assert len(tx.query(LedgerEntry, where=("job_id", "==", "job_t1"))) == 1
 
+    def test_free_local_processing_queues_without_balance_or_ledger(self, container, user):
+        container.funding.billing_enabled = False
+        result = make_job_via_inspection(container)
+        assert result.outcome == "queued"
+        with container.store.transaction() as tx:
+            job = tx.get(Job, "job_t1")
+            assert job.status == JobStatus.QUEUED
+            assert job.charged_ledger_entry_id is None
+            assert tx.get(User, "u1").point_balance_units == 0
+            assert tx.query(LedgerEntry, where=("job_id", "==", "job_t1")) == []
+            assert tx.get(JobOutbox, "job-submit:job_t1:1") is not None
+
 
 class TestCancel:
     def test_queued_cancel_refunds_and_cancels_outbox(self, container, user):
