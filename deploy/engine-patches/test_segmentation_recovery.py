@@ -82,7 +82,7 @@ def test_all_original_fallback_is_not_reported_as_success(tmp_path):
             for w in t['words']: w['speaker_id']='unknown'
             return t
     class UnusableSynthesis(Synthesizer):
-        def synthesize(self,segment,output):
+        def synthesize(self,segment,output,language):
             raise NeedsReview('No usable generated audio')
     pipeline=Pipeline(Settings(storage_root=str(tmp_path)),storage,Separator(storage),Unknown(),Translator(),UnusableSynthesis(storage))
     with pytest.raises(NeedsReview,match='未生成可用的译制对白'):

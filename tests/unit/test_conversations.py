@@ -317,7 +317,7 @@ def test_deepseek_failure_falls_back_without_losing_understood_slots(monkeypatch
 def test_static_entry_point(client):
     assert client.get("/").status_code == 200
     assert client.get("/assets/app.js").status_code == 200
-    assert client.get("/api/v1/chat/config").json()["target_languages"] == ["zh", "en"]
+    assert client.get("/api/v1/chat/config").json()["target_languages"] == ["zh", "en", "ja", "es", "ar"]
 
 
 def prepared_audio(client):

@@ -20,11 +20,12 @@ import soundfile as sf
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import JSON, Float, Integer, String, select
+from sqlalchemy import JSON, Float, Integer, String, select, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base, Job, Session, init_db
 from .storage import LocalStorage
+from .gpu_registry import GpuProvider, migrate_registry
 
 WORKER_PREFIX = '/api/v1/gpu-workers'
 LEASE_SECONDS = 45
@@ -43,6 +44,7 @@ class GpuTask(Base):
     received: Mapped[list] = mapped_column(JSON, default=list)
     error: Mapped[str] = mapped_column(String(80), default='')
     worker_id: Mapped[str] = mapped_column(String(64), default='')
+    provider_id: Mapped[str] = mapped_column(String(32), default='', index=True)
     lease_hash: Mapped[str] = mapped_column(String(64), default='')
     lease_until: Mapped[float] = mapped_column(Float, default=0)
     created: Mapped[float] = mapped_column(Float)
@@ -55,6 +57,7 @@ class GpuWorker(Base):
     last_seen: Mapped[float] = mapped_column(Float, default=0)
     ready: Mapped[int] = mapped_column(Integer, default=0)
     activity_seq: Mapped[int] = mapped_column(Integer, default=0)
+    provider_id: Mapped[str] = mapped_column(String(32), default='')
 
 
 class Texts(BaseModel):
@@ -63,6 +66,7 @@ class Texts(BaseModel):
 
 class Speech(BaseModel):
     text: str = Field(min_length=1, max_length=5000)
+    language: str = Field(default='auto', pattern='^(auto|en|zh|ja|es|ar)$')
     speaker_audio: str
     emotion_audio: str
     output: str
@@ -84,6 +88,35 @@ class Heartbeat(BaseModel):
     ready: bool = False
     gpu_active: bool = False
     active: list[ActiveLease] = Field(default_factory=list, max_length=1)
+    provider_id: str | None = Field(default=None, pattern='^[a-z][a-z0-9_]{0,31}$')
+    provider_type: str = Field(default='local', pattern='^(local|cloud|t4)$')
+
+
+class Registration(BaseModel):
+    provider_id: str = Field(pattern='^[a-z][a-z0-9_]{0,31}$')
+    provider_type: str = Field(pattern='^(local|cloud|t4)$')
+
+
+def register_provider(db, worker_id, provider_id, provider_type):
+    if db.bind.dialect.name == 'postgresql':
+        from .gpu_scheduler import provider_lock_id
+        for key in sorted({provider_lock_id(provider_id), provider_lock_id(worker_id)}):
+            db.execute(select(func.pg_advisory_xact_lock(key)))
+    host = db.get(GpuWorker, worker_id, with_for_update=True)
+    if host and host.provider_id and host.provider_id != provider_id:
+        raise HTTPException(409, 'One dedicated credential identifies one GPU provider')
+    record = db.get(GpuProvider, provider_id, with_for_update=True)
+    if record and (record.owner != worker_id or record.provider_type != provider_type):
+        raise HTTPException(409, 'Provider identity or type is already registered')
+    if record is None:
+        record = GpuProvider(id=provider_id, provider_type=provider_type,
+                             transport='reverse', owner=worker_id)
+        db.add(record)
+    if host is None:
+        host = GpuWorker(id=worker_id)
+        db.add(host)
+    host.provider_id = provider_id
+    return host, record
 
 
 class TokenResult(BaseModel):
@@ -163,7 +196,27 @@ def _create(kind: str, payload: dict, seconds: int, generation: str = '') -> Gpu
             job = db.get(Job, generation)
             if not job or job.status != 'running':
                 raise HTTPException(409, 'Engine job is not active')
-        task = GpuTask(id=str(uuid.uuid4()), generation=generation, kind=kind, status='queued', payload=payload,
+        provider_id = ''
+        if generation:
+            from .cloud_control import CloudExecution
+            execution = db.scalar(select(CloudExecution).where(CloudExecution.generation == generation))
+            if execution:
+                provider_id = execution.gpu_provider
+                if not provider_id:
+                    raise HTTPException(409, 'Video has not been assigned to a GPU provider')
+        else:
+            from .gpu_scheduler import provider_priority, provider_enabled
+            for identifier in provider_priority(db):
+                record = db.get(GpuProvider, identifier)
+                if not record or record.transport != 'reverse' or not provider_enabled(identifier, db):
+                    continue
+                busy = db.scalar(select(GpuTask.id).where(GpuTask.provider_id == identifier,
+                    GpuTask.status.in_(('queued', 'leased'))).limit(1))
+                if record.ready and record.last_seen > now - PRESENCE_SECONDS and not busy:
+                    provider_id = identifier
+                    break
+        task = GpuTask(id=str(uuid.uuid4()), generation=generation, provider_id=provider_id,
+                       kind=kind, status='queued', payload=payload,
                        result={}, received=[], created=now, deadline=now + seconds)
         db.add(task)
     return task
@@ -201,6 +254,7 @@ async def _wait(task_id: str, seconds: int, request: Request):
 @asynccontextmanager
 async def lifespan(_app):
     init_db()
+    migrate_registry()
     yield
 
 
@@ -208,10 +262,13 @@ app = FastAPI(title='Private reverse GPU broker', lifespan=lifespan)
 
 
 @app.get('/health')
-def health():
+def health(provider_id: str = ''):
     now = time.time()
     with Session.begin() as db:
         workers = list(db.scalars(select(GpuWorker).where(GpuWorker.last_seen > now - PRESENCE_SECONDS)))
+    if provider_id:
+        workers = [w for w in workers if w.provider_id == provider_id or
+                   (provider_id == 'local' and not w.provider_id)]
     if not any(w.ready for w in workers):
         raise HTTPException(503, 'No GPU agent online')
     return {'status': 'ready', 'workers_online': sum(bool(w.ready) for w in workers),
@@ -231,7 +288,7 @@ async def synthesize(body: Speech, request: Request, x_engine_generation: str = 
     output = media_key(body.output, suffix='.wav')
     if not storage().exists(speaker) or not storage().exists(emotion):
         raise HTTPException(422, 'Speech reference is unavailable')
-    task = _create('synthesize', {'text': body.text,
+    task = _create('synthesize', {'text': body.text, 'language': body.language,
         'inputs': {'speaker': speaker, 'emotion': emotion}, 'outputs': {'audio': output}}, 1800,
         x_engine_generation)
     return await _wait(task.id, 1800, request)
@@ -270,16 +327,33 @@ def cancel_separation(task_id: str):
         return _view(task)
 
 
+@app.post(WORKER_PREFIX + '/register')
+def register(body: Registration, worker_id=Depends(worker)):
+    # Serialize identity admission, including simultaneous first registration.
+    with Session.begin() as db:
+        register_provider(db, worker_id, body.provider_id, body.provider_type)
+    return {'id': body.provider_id, 'type': body.provider_type, 'capacity': 1}
+
+
 @app.post(WORKER_PREFIX + '/heartbeat')
 def heartbeat(body: Heartbeat, worker_id=Depends(worker)):
     now, cancelled = time.time(), []
     with Session.begin() as db:
         _sweep(db, now)
-        host = db.get(GpuWorker, worker_id, with_for_update=True)
+        # Registration takes identity advisory locks before worker row locks.
+        # Keep the same order here to avoid concurrent register/heartbeat deadlocks.
+        host = db.get(GpuWorker, worker_id, with_for_update=not bool(body.provider_id))
+        record = None
+        if body.provider_id:
+            host, record = register_provider(db, worker_id, body.provider_id, body.provider_type)
+        elif host and host.provider_id:
+            record = db.get(GpuProvider, host.provider_id)
         if host is None:
             host = GpuWorker(id=worker_id)
             db.add(host)
         host.last_seen, host.ready = now, int(body.ready)
+        if record:
+            record.last_seen, record.ready = now, int(body.ready)
         if body.gpu_active:
             host.activity_seq += 1
         for entry in body.active:
@@ -304,6 +378,7 @@ def claim(worker_id=Depends(worker)):
         if active:
             return {'task': None}
         task = db.scalar(select(GpuTask).where(GpuTask.status == 'queued')
+                         .where(GpuTask.provider_id.in_((host.provider_id,) if host.provider_id else ('', 'local')))
                          .order_by(GpuTask.created, GpuTask.id).with_for_update(skip_locked=True).limit(1))
         if not task:
             return {'task': None}

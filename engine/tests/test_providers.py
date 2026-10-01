@@ -3,7 +3,7 @@ import httpx
 import pytest
 from videotranslator.config import Settings
 from videotranslator.domain import Segment, ProviderError
-from videotranslator.providers import DeepSeekTranslator, MVSeparator
+from videotranslator.providers import DeepSeekTranslator, OpenAITranslator, create_translator, MVSeparator
 from videotranslator.transcription import WhisperDiarizedTranscriber, attach_speakers
 from videotranslator import media
 from videotranslator.storage import LocalStorage
@@ -11,6 +11,76 @@ from videotranslator.storage import LocalStorage
 def transport(monkeypatch, handle):
     original=httpx.Client
     monkeypatch.setattr(httpx,'Client',lambda **kw:original(transport=httpx.MockTransport(handle),**kw))
+
+
+@pytest.mark.parametrize(('code', 'name'), [('zh', 'Simplified Chinese'), ('en', 'English'),
+    ('ja', 'Japanese'), ('es', 'Spanish'), ('ar', 'Arabic')])
+def test_openai_translates_entire_dialogue_in_one_request(monkeypatch, code, name):
+    segments = [Segment(f'seg-{i:05}', '', i, i+1, f'Line {i}') for i in range(58)]
+    calls = []
+    def handle(request):
+        calls.append(request)
+        assert request.url.path == '/v1/chat/completions'
+        assert request.headers['authorization'] == 'Bearer test-only-key'
+        sent = json.loads(request.content)
+        assert sent['model'] == 'gpt-6-luna'
+        assert sent['reasoning_effort'] == 'none'
+        assert 'thinking' not in sent and 'max_tokens' not in sent
+        assert sent['response_format']['json_schema']['strict'] is True
+        payload = json.loads(sent['messages'][1]['content'])
+        assert payload['target_language'] == name
+        assert payload['terminology'] == 'Alice: keep this name'
+        assert [s['id'] for s in payload['segments']] == [s.id for s in segments]
+        assert payload['segments'][-1]['source_text'] == 'Line 57'
+        return httpx.Response(200, json={'choices': [{'finish_reason': 'stop',
+            'message': {'content': json.dumps({'segments': [
+                {'id': s.id, 'translation': f'Translation {i}'} for i, s in enumerate(segments)]})}}]})
+    transport(monkeypatch, handle)
+    translator = create_translator(Settings(openai_api_key='test-only-key'))
+    assert isinstance(translator, OpenAITranslator)
+    result = translator.translate(segments, code, 'Alice: keep this name')
+    assert len(calls) == 1 and len(result) == 58
+    assert result[segments[-1].id] == 'Translation 57'
+
+
+@pytest.mark.parametrize(('entries', 'reason', 'refusal'), [
+    ([{'id': 'seg-1', 'translation': 'hello'}], 'length', None),
+    ([{'id': 'seg-1', 'translation': 'hello'}], 'stop', None),
+    ([{'id': 'wrong-id', 'translation': 'hello'}], 'stop', None),
+    ([{'id': 'seg-1', 'translation': 'hello'}] * 2, 'stop', None),
+    ([{'id': 'seg-1', 'translation': ''}, {'id': 'seg-2', 'translation': 'hi'}], 'stop', None),
+    ([], 'stop', 'refused'),
+])
+def test_openai_rejects_incomplete_output_without_splitting_or_fallback(monkeypatch, entries, reason, refusal):
+    calls = []
+    def handle(request):
+        calls.append(request)
+        return httpx.Response(200, json={'choices': [{'finish_reason': reason,
+            'message': {'content': json.dumps({'segments': entries}), 'refusal': refusal}}]})
+    transport(monkeypatch, handle)
+    with pytest.raises(ProviderError, match='no partial translation was accepted'):
+        OpenAITranslator(Settings()).translate(
+            [Segment('seg-1', '', 0, 1, 'Hello'), Segment('seg-2', '', 1, 2, 'Hi')], 'zh', '')
+    assert len(calls) == 1
+
+
+def test_translation_settings_invalidate_previous_translation_cache():
+    cfg = Settings()
+    assert cfg.translation_label() == 'gpt-6-luna'
+    assert cfg.pipeline_config()['translation_strategy'] == 'whole-transcript-v1'
+    assert cfg.pipeline_config() != Settings(translation_provider='deepseek').pipeline_config()
+    assert cfg.pipeline_config() != Settings(translation_model='gpt-6-sol').pipeline_config()
+    assert isinstance(create_translator(Settings(translation_provider='deepseek')), DeepSeekTranslator)
+    scribe = Settings(transcription_provider='scribe', elevenlabs_api_key='test',
+                      deepseek_api_key='test', openai_api_key='')
+    assert scribe.missing_keys() == ['OPENAI_API_KEY']
+
+
+def test_empty_transcript_does_not_call_openai(monkeypatch):
+    def handle(request):
+        pytest.fail('Empty transcript must not make an API request')
+    transport(monkeypatch, handle)
+    assert OpenAITranslator(Settings()).translate([], 'zh', '') == {}
 
 @pytest.mark.parametrize('read_timeout', [120, 600])
 def test_tokenizer_allows_cloud_model_reload_without_changing_connect_timeout(monkeypatch, read_timeout):
@@ -28,6 +98,32 @@ def test_tokenizer_allows_cloud_model_reload_without_changing_connect_timeout(mo
             synth.tokenize(['hello'])
     else:
         assert synth.tokenize(['hello']) == [3]
+
+
+def test_synthesizer_passes_explicit_target_language(monkeypatch):
+    from videotranslator.providers import IndexSynthesizer
+    def handle(request):
+        body = json.loads(request.content)
+        assert body['language'] == 'es'
+        return httpx.Response(200, json={'output': body['output']})
+    transport(monkeypatch, handle)
+    segment = Segment('seg-1', 'a', 0, 3, 'Hola', translation='Hola',
+                      speaker_reference='jobs/test/speaker.wav', emotion_reference='jobs/test/emotion.wav')
+    result = IndexSynthesizer(Settings()).synthesize(segment, 'jobs/test/output.wav', 'es')
+    assert result['output'] == 'jobs/test/output.wav'
+
+
+@pytest.mark.parametrize(('code', 'name'), [('ja', 'Japanese'), ('es', 'Spanish'), ('ar', 'Arabic')])
+def test_translation_supports_indextts25_languages(monkeypatch, code, name):
+    def handle(request):
+        sent = json.loads(request.content)
+        payload = json.loads(sent['messages'][1]['content'])
+        assert payload['target_language'] == name
+        return httpx.Response(200, json={'choices':[{'finish_reason':'stop',
+            'message':{'content':json.dumps({'segments':[{'id':'seg-1','translation':'translated'}]})}}]})
+    transport(monkeypatch, handle)
+    result = DeepSeekTranslator(Settings()).translate([Segment('seg-1','a',0,3,'Hello')], code, '')
+    assert result == {'seg-1':'translated'}
 
 @pytest.mark.parametrize('entries,reason',[
     ([{'id':'seg-1','translation':'你好'}],'length'),

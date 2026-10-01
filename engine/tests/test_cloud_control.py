@@ -35,6 +35,7 @@ def test_scaler_view_selects_provider_mode(monkeypatch, mode, expected):
     def begin():
         yield Connection()
     monkeypatch.setenv('GPU_PROVIDER_MODE', mode)
+    monkeypatch.setenv('GPU_AZURE_T4_ENABLED', 'true')
     monkeypatch.setattr(cloud_control, 'init_db', lambda: None)
     monkeypatch.setattr(cloud_control, 'engine', SimpleNamespace(
         dialect=SimpleNamespace(name='postgresql'), begin=begin))
@@ -47,6 +48,7 @@ def test_local_provider_has_priority_and_azure_keeps_assigned_work(control, monk
     identifier, response = submit(control)
     generation = response.json()['generation']
     online = [True]
+    monkeypatch.setenv('GPU_AZURE_T4_ENABLED', 'true')
     monkeypatch.setattr(cloud_worker, 'local_gpu_online', lambda _db: online[0])
     with Session() as db:
         assert cloud_worker.next_execution(db, 'local') == identifier
@@ -68,6 +70,7 @@ def test_local_provider_has_priority_and_azure_keeps_assigned_work(control, monk
 def test_busy_local_spills_to_t4_and_both_busy_leave_fifo_queued(control, monkeypatch):
     from videotranslator import cloud_worker
     monkeypatch.setenv('CLOUD_VALIDATION_MAX_JOBS', '0')
+    monkeypatch.setenv('GPU_AZURE_T4_ENABLED', 'true')
     monkeypatch.setattr(cloud_worker, 'local_gpu_online', lambda _db: True)
     first, first_response = submit(control)
     second, second_response = submit(control)
@@ -98,6 +101,123 @@ def test_provider_order_lock_and_poll_contract(monkeypatch):
     assert poll_seconds() == 10
     template = json.loads((Path(__file__).parents[2] / 'deploy' / 'azure-jp' / 'gpu.template.json').read_text())
     assert template['properties']['template']['scale']['pollingInterval'] == 10
+
+
+@pytest.mark.parametrize('local_online', [False, True])
+def test_explicitly_disabled_t4_leaves_new_work_queued(control, monkeypatch, local_online):
+    from videotranslator import cloud_worker
+    from videotranslator.gpu_scheduler import provider_enabled
+    monkeypatch.setenv('GPU_AZURE_T4_ENABLED', 'false')
+    monkeypatch.setenv('CLOUD_VALIDATION_MAX_JOBS', '0')
+    monkeypatch.setattr(cloud_worker, 'local_gpu_online', lambda _db: local_online)
+    first, first_response = submit(control)
+    second, _ = submit(control)
+    if local_online:
+        with Session.begin() as db:
+            db.get(CloudExecution, first).gpu_provider = 'local'
+            db.get(Job, first_response.json()['generation']).status = 'running'
+    assert provider_enabled('local') is True
+    assert provider_enabled('azure_t4') is False
+    with Session() as db:
+        assert cloud_worker.provider_available(db, 'azure_t4') is False
+        assert cloud_worker.next_execution(db, 'azure_t4') is None
+        assert db.get(CloudExecution, second).gpu_provider == ''
+
+
+def test_disabling_t4_preserves_assigned_attempts(control, monkeypatch):
+    from videotranslator import cloud_worker
+    monkeypatch.setenv('GPU_AZURE_T4_ENABLED', 'false')
+    identifier, response = submit(control)
+    with Session.begin() as db:
+        db.get(CloudExecution, identifier).gpu_provider = 'azure_t4'
+        db.get(Job, response.json()['generation']).status = 'running'
+    with Session() as db:
+        assert cloud_worker.next_execution(db, 'azure_t4') == identifier
+
+
+@pytest.mark.parametrize('mode', ['azure_t4', 'hybrid'])
+def test_disabled_t4_scaler_only_sees_previously_assigned_work(monkeypatch, mode):
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+    from videotranslator import cloud_control
+    statements = []
+    class Connection:
+        def execute(self, statement):
+            statements.append(str(statement))
+    @contextmanager
+    def begin():
+        yield Connection()
+    monkeypatch.setenv('GPU_AZURE_T4_ENABLED', 'false')
+    monkeypatch.setenv('GPU_PROVIDER_MODE', mode)
+    monkeypatch.setattr(cloud_control, 'init_db', lambda: None)
+    monkeypatch.setattr(cloud_control, 'engine', SimpleNamespace(
+        dialect=SimpleNamespace(name='postgresql'), begin=begin))
+    cloud_control.initialize()
+    assert "AND e.gpu_provider = 'azure_t4'" in statements[-1]
+    assert "e.gpu_provider = ''" not in statements[-1]
+
+
+def test_standalone_local_worker_is_not_t4_and_does_not_require_reverse_agent(monkeypatch):
+    from videotranslator import cloud_worker
+    monkeypatch.delenv('GPU_PROVIDER', raising=False)
+    monkeypatch.setenv('GPU_AZURE_T4_ENABLED', 'false')
+    monkeypatch.setenv('GPU_PROVIDER_ALWAYS_AVAILABLE', 'local')
+    monkeypatch.setattr(cloud_worker, 'local_gpu_online', lambda _db: pytest.fail('direct GPU needs no reverse agent'))
+    assert cloud_worker.provider_name() == 'local'
+    assert cloud_worker.provider_available(None, 'azure_t4') is False
+    assert cloud_worker.provider_online(None, 'local') is True
+    compose = (Path(__file__).parents[2] / 'compose.local-gpu.yml').read_text()
+    worker = compose.split('\n  engine-worker:\n', 1)[1].split('\n  tts:\n', 1)[0]
+    assert 'GPU_PROVIDER: local' in worker
+    assert 'GPU_PROVIDER_ALWAYS_AVAILABLE: local' in worker
+
+
+@pytest.mark.parametrize('available', ['local', 'local_second', 'other_gpu', None])
+def test_t4_enabled_by_default_waits_for_every_other_provider(control, monkeypatch, available):
+    from videotranslator import cloud_worker
+    from videotranslator.gpu_scheduler import provider_enabled, provider_priority
+    monkeypatch.delenv('GPU_AZURE_T4_ENABLED', raising=False)
+    monkeypatch.setenv('GPU_PROVIDER_PRIORITY', 'local,azure_t4,local_second,other_gpu')
+    order = provider_priority()
+    assert order == ('local', 'local_second', 'other_gpu', 'azure_t4')
+    assert provider_enabled('azure_t4') is True
+    identifier, _ = submit(control)
+    checked = []
+    def provider_available(db, provider):
+        checked.append(provider)
+        return provider == 'azure_t4' or provider == available
+    monkeypatch.setattr(cloud_worker, 'provider_available', provider_available)
+    with Session() as db:
+        assert cloud_worker.next_execution(db, 'azure_t4') == (identifier if available is None else None)
+    if available is None:
+        assert checked == ['azure_t4', 'local', 'local_second', 'other_gpu']
+
+
+@pytest.mark.parametrize('mode', [None, 'hybrid', 'azure_t4'])
+def test_scaler_checks_additional_providers_before_t4(monkeypatch, mode):
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+    from videotranslator import cloud_control
+    statements = []
+    class Connection:
+        def execute(self, statement):
+            statements.append(str(statement))
+    @contextmanager
+    def begin():
+        yield Connection()
+    monkeypatch.delenv('GPU_AZURE_T4_ENABLED', raising=False)
+    monkeypatch.delenv('GPU_PROVIDER_MODE', raising=False)
+    if mode:
+        monkeypatch.setenv('GPU_PROVIDER_MODE', mode)
+    monkeypatch.delenv('REVERSE_GPU_ENABLED', raising=False)
+    monkeypatch.setenv('GPU_PROVIDER_PRIORITY', 'local,azure_t4,local_second,other_gpu')
+    monkeypatch.setattr(cloud_control, 'init_db', lambda: None)
+    monkeypatch.setattr(cloud_control, 'engine', SimpleNamespace(
+        dialect=SimpleNamespace(name='postgresql'), begin=begin))
+    cloud_control.initialize()
+    query = statements[-1]
+    assert "pw.provider = 'local_second'" in query and "pw.provider = 'other_gpu'" in query
+    assert "e.gpu_provider = 'azure_t4'" in query
 
 TOKEN = 'test-private-control-token-32-characters'
 

@@ -20,29 +20,37 @@ from .db import engine, Session, Job
 from .domain import Cancelled
 from .gpu_scheduler import (AZURE_PROVIDER, LOCAL_PROVIDER, always_available_providers,
                             poll_seconds, provider_capacities, provider_lock_id,
-                            provider_priority)
+                            provider_priority, provider_enabled)
 from .storage import LocalStorage
+from .gpu_registry import GpuProvider, registered
 
 
 def provider_name():
-    value = os.getenv('GPU_PROVIDER', AZURE_PROVIDER)
-    if value not in provider_priority():
-        raise RuntimeError('GPU_PROVIDER must be present in GPU_PROVIDER_PRIORITY')
+    value = os.getenv('GPU_PROVIDER', LOCAL_PROVIDER)
+    import re
+    if not re.fullmatch(r'[a-z][a-z0-9_]{0,31}', value):
+        raise RuntimeError('GPU_PROVIDER must be a valid provider ID')
     return value
 
 
 def local_gpu_online(db):
-    return bool(db.execute(text("""SELECT EXISTS (
-        SELECT 1 FROM gpu_workers
-        WHERE ready = 1 AND last_seen > EXTRACT(EPOCH FROM NOW()) - 30
-    )""")).scalar())
+    from .gpu_broker import GpuWorker
+    return bool(db.scalar(select(GpuWorker.id).where(GpuWorker.ready == 1,
+        GpuWorker.provider_id == '', GpuWorker.last_seen > time.time() - 30).limit(1)))
 
 
 def provider_online(db, provider):
-    if provider == LOCAL_PROVIDER:
-        return local_gpu_online(db)
+    if not provider_enabled(provider, db):
+        return False
+    record = db.get(GpuProvider, provider) if db is not None else None
+    if record:
+        return bool(record.ready and record.last_seen > time.time() - 30)
     if provider in always_available_providers():
         return True
+    if provider == LOCAL_PROVIDER:
+        return local_gpu_online(db)
+    if db.bind.dialect.name != 'postgresql':
+        return False
     return bool(db.execute(text("""SELECT EXISTS (
         SELECT 1 FROM gpu_provider_workers
         WHERE provider = :provider
@@ -60,14 +68,24 @@ def active_provider_count(db, provider):
 
 def provider_available(db, provider):
     return (provider_online(db, provider)
-            and active_provider_count(db, provider) < provider_capacities()[provider])
+            and active_provider_count(db, provider) < provider_capacities(db)[provider])
 
 
 def record_provider_heartbeat(db, provider):
-    db.execute(text("""INSERT INTO gpu_provider_workers (provider, last_seen, ready)
-        VALUES (:provider, :last_seen, 1)
-        ON CONFLICT (provider) DO UPDATE SET last_seen=:last_seen, ready=1"""),
-        {'provider': provider, 'last_seen': time.time()})
+    if os.getenv('GPU_DISPATCH_REGISTERED', 'false').lower() == 'true':
+        return  # Reverse identities are owned and heartbeated by GPU agents.
+    record = db.get(GpuProvider, provider)
+    if record and record.transport != 'direct':
+        raise RuntimeError('Direct worker ID conflicts with a registered GPU agent')
+    kind = os.getenv('GPU_PROVIDER_TYPE', 't4' if provider == AZURE_PROVIDER else 'local')
+    if kind not in ('local', 'cloud', 't4'):
+        raise RuntimeError('GPU_PROVIDER_TYPE must be local, cloud, or t4')
+    if record is None:
+        record = GpuProvider(id=provider, provider_type=kind, transport='direct', owner='')
+        db.add(record)
+    if record.provider_type != kind:
+        raise RuntimeError('Provider type cannot change while registered')
+    record.last_seen, record.ready = time.time(), 1
     db.commit()
 
 
@@ -78,7 +96,7 @@ def next_execution(db, provider):
         .order_by(CloudExecution.created).limit(1))
     if assigned:
         return assigned
-    priority = provider_priority()
+    priority = provider_priority(db)
     if not provider_available(db, provider):
         return None
     for preferred in priority[:priority.index(provider)]:
@@ -116,7 +134,7 @@ def finish(identifier, status, error=''):
 def run_pipeline(identifier):
     from .demucs import create_separator
     from .pipeline import Pipeline
-    from .providers import DeepSeekTranslator, IndexSynthesizer
+    from .providers import create_translator, IndexSynthesizer
     from .punctuation import DeepSeekPunctuator
     from .scribe import create_transcriber
     cfg = settings()
@@ -129,7 +147,7 @@ def run_pipeline(identifier):
     def report(stage, progress):
         update(identifier, stage=stage, progress=progress, heartbeat=time.time())
     pipeline = Pipeline(cfg, storage, create_separator(cfg, storage),
-        create_transcriber(cfg, storage, check_cancel=check), DeepSeekTranslator(cfg),
+        create_transcriber(cfg, storage, check_cancel=check), create_translator(cfg),
         IndexSynthesizer(cfg), DeepSeekPunctuator(cfg))
     outputs = pipeline.run(job, report, check)
     warnings = storage.read_json(outputs['manifest']).get('warnings', [])
@@ -166,6 +184,8 @@ def process(identifier, lock, provider=None):
             job = db.get(Job, execution.generation, with_for_update=True)
             if execution.gpu_provider and execution.gpu_provider != provider:
                 return
+            if not execution.gpu_provider and not provider_enabled(provider, db):
+                return
             if job.status == 'cancel_requested':
                 job.status = 'cancelled'
                 execution.finished = time.time()
@@ -181,6 +201,10 @@ def process(identifier, lock, provider=None):
                 job.status, job.error = 'failed', 'Configuration unavailable or deadline exceeded'
                 execution.finished = time.time()
                 return
+            if not execution.gpu_provider and db.bind.dialect.name == 'postgresql':
+                db.execute(text('SELECT pg_advisory_xact_lock(7182953)'))
+                if next_execution(db, provider) != identifier:
+                    return
             execution.gpu_provider = provider
             job.status, job.stage = 'provisioning', 'starting_gpu'
             execution.started = time.time()
@@ -191,6 +215,9 @@ def process(identifier, lock, provider=None):
             # The lock must stay alive; loss terminates the child before retry.
             lock.execute(text('SELECT 1'))
             lock.commit()
+            if os.getenv('GPU_DISPATCH_REGISTERED', 'false').lower() != 'true':
+                with Session() as db:
+                    record_provider_heartbeat(db, provider)
             with Session() as db:
                 execution = db.get(CloudExecution, identifier)
                 current = db.get(Job, execution.generation)
@@ -210,7 +237,10 @@ def process(identifier, lock, provider=None):
             if not child or (supervised and time.monotonic() >= next_probe):
                 next_probe = time.monotonic() + 10
                 try:
-                    response = httpx.get(cfg.tts_url.rstrip('/') + '/health', timeout=5)
+                    health_url = cfg.tts_url.rstrip('/') + '/health'
+                    if os.getenv('GPU_DISPATCH_REGISTERED', 'false').lower() == 'true':
+                        health_url += '?provider_id=' + provider
+                    response = httpx.get(health_url, timeout=5)
                     ready = response.status_code == 200
                     payload = response.json() if hasattr(response, 'json') else {}
                     if payload.get('status') == 'error':
@@ -251,11 +281,10 @@ def process(identifier, lock, provider=None):
         stop_child(child)
 
 
-def main():
+def provider_loop(provider):
     if engine.dialect.name != 'postgresql':
         raise RuntimeError('Cloud worker requires PostgreSQL locking')
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
-    provider = provider_name()
     interval = poll_seconds()
     lock_id = provider_lock_id(provider)
     while True:
@@ -280,8 +309,44 @@ def main():
         time.sleep(interval)
 
 
+def dispatch_registered():
+    """One supervised CPU process per registered reverse GPU, not one local slot."""
+    children = {}
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    try:
+        while True:
+            with Session() as db:
+                records = registered(db)
+                ids = {p.id for p in records if p.transport == 'reverse' and
+                       (p.last_seen > time.time() - 30 or active_provider_count(db, p.id))}
+                # Legacy agents remain usable during a rolling upgrade.
+                if local_gpu_online(db):
+                    ids.add(LOCAL_PROVIDER)
+            for identifier in ids:
+                child = children.get(identifier)
+                if child is None or child.poll() is not None:
+                    children[identifier] = subprocess.Popen(
+                        [sys.executable, '-m', 'videotranslator.cloud_worker', '--provider-loop', identifier],
+                        start_new_session=True, env=os.environ | {'GPU_PROVIDER': identifier})
+            for identifier in set(children) - ids:
+                stop_child(children.pop(identifier))
+            time.sleep(poll_seconds())
+    finally:
+        for child in children.values():
+            stop_child(child)
+
+
+def main():
+    if os.getenv('GPU_DISPATCH_REGISTERED', 'false').lower() == 'true':
+        dispatch_registered()
+    else:
+        provider_loop(provider_name())
+
+
 if __name__ == '__main__':
     if len(sys.argv) == 3 and sys.argv[1] == '--execute':
         run_pipeline(sys.argv[2])
+    elif len(sys.argv) == 3 and sys.argv[1] == '--provider-loop':
+        provider_loop(provider_name())
     else:
         main()

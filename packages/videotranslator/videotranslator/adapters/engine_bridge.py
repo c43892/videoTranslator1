@@ -41,7 +41,7 @@ def main():
             raise ValueError('Engine job ownership mismatch')
         if action == 'submit' and not job:
             spec = request['spec']
-            if spec['target_language'] not in ('en', 'zh'):
+            if spec['target_language'] not in ('en', 'zh', 'ja', 'es', 'ar'):
                 raise ValueError('Unsupported target language')
             source = Path('/tmp') / ('studio-' + job_id + '.mp4')
             if not source.is_file():

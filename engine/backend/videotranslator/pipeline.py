@@ -32,8 +32,8 @@ class Pipeline:
                         'fingerprint': fingerprint, 'config': config.pipeline_config(),
                         'providers': {'separation': config.separation_label(),
                                       'transcription': config.transcription_model(), 'diarization': 'disabled',
-                                      'translation': config.deepseek_model,
-                                      'synthesis': 'IndexTTS2 v2.0.0 / 830f6f8'},
+                                      'translation': config.translation_label(),
+                                      'synthesis': 'IndexTTS2 v2.5.0 / 39207d9'},
                         'completed': {}, 'segments': [], 'warnings': []}
         def save():
             storage.write_json(manifest_key, manifest)
@@ -154,13 +154,18 @@ class Pipeline:
         stage('translate', 45)
         translated_key = f'{prefix}/translations.json'
         translations = storage.read_json(translated_key) if storage.exists(translated_key) else {}
-        # Process complete context batches and checkpoint after every accepted response.
-        for start in range(0, len(segments), 16):
+        # The whole dialogue is translated in one request, with original segment IDs.
+        # An incomplete checkpoint triggers a complete request, never a contextless tail.
+        if segments and any(s.id not in translations for s in segments):
             check_cancel()
-            batch = segments[start:start+16]
-            if any(s.id not in translations for s in batch):
-                translations.update(self.translator.translate(batch, job.target_language, job.terminology))
-                storage.write_json(translated_key, translations)
+            translations = self.translator.translate(segments, job.target_language, job.terminology)
+            storage.write_json(translated_key, translations)
+        manifest['translation'] = {'strategy': 'whole-transcript-v1',
+                                   'segment_count': len(segments),
+                                   'segments_per_request': len(segments),
+                                   'model': config.translation_label(),
+                                   **getattr(self.translator, 'last_response_metadata',
+                                             manifest.get('translation', {}))}
         for segment in segments:
             segment.translation = overrides.get('translations', {}).get(segment.id, translations[segment.id])
         for start in range(0, len(segments), 100):
@@ -181,14 +186,15 @@ class Pipeline:
                 save_segments()
                 continue
             cache_id = digest({'text': segment.translation, 'speaker': segment.speaker_reference,
-                               'emotion': segment.emotion_reference, 'fingerprint': fingerprint,
+                               'emotion': segment.emotion_reference, 'language': job.target_language,
+                               'fingerprint': fingerprint,
                                **({'revision': overrides['synthesis_revisions'][segment.id]}
                                   if segment.id in overrides.get('synthesis_revisions', {}) else {})})
             segment.synthesized_audio = f'{prefix}/synthesized/{segment.id}-{cache_id}.wav'
             segment.aligned_audio = f'{prefix}/aligned/{segment.id}-{cache_id}.wav'
             if not storage.exists(segment.synthesized_audio):
                 try:
-                    self.synthesizer.synthesize(segment, segment.synthesized_audio)
+                    self.synthesizer.synthesize(segment, segment.synthesized_audio, job.target_language)
                 except NeedsReview as exc:
                     segment.flags.append(str(exc))
                     preserve_original(segment)

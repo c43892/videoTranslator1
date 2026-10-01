@@ -49,7 +49,7 @@ def repair(job_id):
                     s.aligned_audio=f'{prefix}/aligned/{s.id}.wav'
                     try:
                         if not storage.exists(s.synthesized_audio):
-                            synth.synthesize(s,s.synthesized_audio)
+                            synth.synthesize(s,s.synthesized_audio,target_language)
                         media.align(storage.path(s.synthesized_audio),storage.path(s.aligned_audio),s.end-s.start,config.max_speedup)
                         actual=sf.info(storage.path(s.aligned_audio)).duration
                         if abs(actual-(s.end-s.start))>1/48000:

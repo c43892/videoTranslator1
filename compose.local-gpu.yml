@@ -29,11 +29,15 @@ services:
       ENGINE_CONTROL_TOKEN: ${ENGINE_CONTROL_TOKEN:?Set ENGINE_CONTROL_TOKEN in .env.local-gpu}
       CLOUD_ACCEPT_JOBS: ${CLOUD_ACCEPT_JOBS:-false}
       CLOUD_VALIDATION_MAX_JOBS: '0'
+      GPU_PROVIDER_MODE: local_only
+      GPU_AZURE_T4_ENABLED: ${GPU_AZURE_T4_ENABLED:-true}
       CLOUD_JOB_MAX_SECONDS: '7200'
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       TRANSCRIPTION_PROVIDER: ${TRANSCRIPTION_PROVIDER:-whisper}
       WHISPER_MODEL: ${WHISPER_MODEL:-whisper-1}
+      TRANSLATION_PROVIDER: ${TRANSLATION_PROVIDER:-openai}
+      TRANSLATION_MODEL: ${TRANSLATION_MODEL:-gpt-6-luna}
     volumes:
       - engine-data:/data
     depends_on:
@@ -48,7 +52,7 @@ services:
   engine-worker:
     image: videotranslator-local-engine:latest
     restart: unless-stopped
-    environment:
+    environment: &gpu_pipeline
       DATABASE_URL: postgresql+psycopg://videotranslator:${POSTGRES_PASSWORD}@postgres:5432/videotranslator
       STORAGE_ROOT: /data
       TTS_URL: http://tts:8001
@@ -57,13 +61,50 @@ services:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       TRANSCRIPTION_PROVIDER: ${TRANSCRIPTION_PROVIDER:-whisper}
       WHISPER_MODEL: ${WHISPER_MODEL:-whisper-1}
+      TRANSLATION_PROVIDER: ${TRANSLATION_PROVIDER:-openai}
+      TRANSLATION_MODEL: ${TRANSLATION_MODEL:-gpt-6-luna}
       SEPARATION_PROVIDER: demucs
+      GPU_PROVIDER: local
+      GPU_PROVIDER_ALWAYS_AVAILABLE: local
+      GPU_AZURE_T4_ENABLED: ${GPU_AZURE_T4_ENABLED:-true}
     volumes:
       - engine-data:/data
     depends_on:
       engine-control:
         condition: service_healthy
       tts:
+        condition: service_started
+
+  gpu-broker:
+    image: videotranslator-local-engine:latest
+    restart: unless-stopped
+    command: [uvicorn, videotranslator.gpu_broker:app, --host, '0.0.0.0', --port, '8082']
+    environment:
+      DATABASE_URL: postgresql+psycopg://videotranslator:${POSTGRES_PASSWORD}@postgres:5432/videotranslator
+      STORAGE_ROOT: /data
+      GPU_BROKER_INTERNAL_TOKEN: ${GPU_BROKER_INTERNAL_TOKEN:-${ENGINE_CONTROL_TOKEN}}
+      GPU_WORKER_TOKENS: ${GPU_WORKER_TOKENS:-}
+    volumes:
+      - engine-data:/data
+    depends_on:
+      engine-control:
+        condition: service_healthy
+
+  engine-dispatcher:
+    image: videotranslator-local-engine:latest
+    restart: unless-stopped
+    environment:
+      <<: *gpu_pipeline
+      TTS_URL: http://gpu-broker:8082
+      DEMUCS_URL: http://gpu-broker:8082
+      GPU_BROKER_INTERNAL_TOKEN: ${GPU_BROKER_INTERNAL_TOKEN:-${ENGINE_CONTROL_TOKEN}}
+      GPU_DISPATCH_REGISTERED: 'true'
+      GPU_PROVIDER_ALWAYS_AVAILABLE: local
+    command: [python, -m, videotranslator.cloud_worker]
+    volumes:
+      - engine-data:/data
+    depends_on:
+      gpu-broker:
         condition: service_started
 
   tts:
@@ -96,6 +137,7 @@ services:
       APP_PROFILE: local-full
       ENGINE_BACKEND: private
       ENGINE_CONTROL_URL: http://engine-control:8080
+      GPU_BROKER_URL: http://gpu-broker:8082
       ENGINE_CONTROL_TOKEN: ${ENGINE_CONTROL_TOKEN}
       AUTH_MODE: ${AUTH_MODE:-demo}
       PAYMENT_MODE: ${PAYMENT_MODE:-disabled}

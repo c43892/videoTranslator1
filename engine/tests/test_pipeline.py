@@ -44,8 +44,8 @@ class Synthesizer:
         self.calls=[]
     def tokenize(self,texts):
         return [5]*len(texts)
-    def synthesize(self,segment,output):
-        self.calls.append((segment.speaker_reference,segment.emotion_reference))
+    def synthesize(self,segment,output,language):
+        self.calls.append((segment.speaker_reference,segment.emotion_reference,language))
         self.storage.path(output).parent.mkdir(parents=True,exist_ok=True)
         sf.write(self.storage.path(output),np.sin(np.arange(48000)*2*np.pi*330/48000)*.1,48000)
         return {'duration':1}
@@ -67,7 +67,7 @@ def test_real_media_end_to_end_with_provider_fixtures_and_resume(tmp_path):
     assert len(manifest['segments'])==2
     refs=providers[3].calls
     assert refs[0][0]!=refs[1][0]  # each utterance supplies its own voice
-    assert all(voice==emotion for voice,emotion in refs)
+    assert all(voice==emotion and language=='zh' for voice,emotion,language in refs)
     assert refs[0][1]!=refs[1][1]  # emotion belongs to each utterance
     assert reports[-1]==('complete',100)
     pipeline.run(job,lambda *_:None,lambda:None)
@@ -88,6 +88,41 @@ def test_cancel_before_any_provider_call(tmp_path):
         pipeline.run(SimpleNamespace(id='cancelled',target_language='zh',terminology='',input_key='input.mp4'),lambda *_:None,stop)
     assert providers[0].calls==0
 
+
+def test_pipeline_sends_all_segments_and_replaces_incomplete_checkpoint(tmp_path, monkeypatch):
+    from videotranslator.domain import Segment
+    storage = LocalStorage(str(tmp_path))
+    media.ffmpeg(['-f', 'lavfi', '-i', 'color=s=160x90:r=24:d=8',
+                  '-f', 'lavfi', '-i', 'sine=duration=8', '-c:v', 'libx264',
+                  '-pix_fmt', 'yuv420p', '-c:a', 'aac', storage.path('input.mp4')])
+    segments = [Segment(f'seg-{i:05}', '', .2, 1.2, f'Line {i}') for i in range(20)]
+    monkeypatch.setattr('videotranslator.pipeline.segment_dialogue', lambda *a, **k: segments)
+    received = []
+    class WholeTranslator:
+        def translate(self, supplied, language, terminology):
+            received.append([s.id for s in supplied])
+            return {s.id: f'完整译文 {s.id}' for s in supplied}
+    class StopAfterTranslation(Exception):
+        pass
+    class StopSynth:
+        def tokenize(self, texts):
+            raise StopAfterTranslation()
+    pipeline = Pipeline(Settings(), storage, Separator(storage), Transcriber(), WholeTranslator(), StopSynth())
+    job = SimpleNamespace(id='whole-transcript', input_key='input.mp4', target_language='zh', terminology='')
+    def run():
+        with pytest.raises(StopAfterTranslation):
+            pipeline.run(job, lambda *a: None, lambda: None)
+    run()
+    assert received == [[s.id for s in segments]]
+    translated_key = next(tmp_path.rglob('translations.json')).relative_to(tmp_path).as_posix()
+    complete = storage.read_json(translated_key)
+    storage.write_json(translated_key, {segments[0].id: 'stale partial translation'})
+    run()
+    assert received == [[s.id for s in segments]] * 2
+    assert storage.read_json(translated_key) == complete
+    run()
+    assert len(received) == 2  # complete checkpoint resumes without another paid request
+
 @pytest.mark.parametrize('failure',['overflow','incomplete','text_limit','reference'])
 def test_bad_segment_falls_back_continues_and_can_be_retried_alone(tmp_path,failure):
     from videotranslator.domain import NeedsReview
@@ -99,16 +134,16 @@ def test_bad_segment_falls_back_continues_and_can_be_retried_alone(tmp_path,fail
         failing=True
         def tokenize(self,texts):
             return [999 if self.failing and failure=='text_limit' and i==0 else 5 for i,_ in enumerate(texts)]
-        def synthesize(self,segment,output):
+        def synthesize(self,segment,output,language):
             if self.failing and segment.id=='seg-00001':
                 if failure=='incomplete':
                     raise NeedsReview('Incomplete synthesis')
                 if failure=='overflow':
-                    self.calls.append((segment.speaker_reference,segment.emotion_reference))
+                    self.calls.append((segment.speaker_reference,segment.emotion_reference,language))
                     self.storage.path(output).parent.mkdir(parents=True,exist_ok=True)
                     sf.write(self.storage.path(output),np.ones(5*48000)*.1,48000)
                     return
-            super().synthesize(segment,output)
+            super().synthesize(segment,output,language)
     class ReferenceTranscriber(Transcriber):
         def transcribe(self,audio):
             result=super().transcribe(audio)

@@ -31,6 +31,7 @@
             {"name":"TTS_TOKENIZE_TIMEOUT_SECONDS","value":"600"},
             {"name":"DEMUCS_URL","value":"http://localhost:8001"},
             {"name":"GPU_PROVIDER","value":"azure_t4"},
+            {"name":"GPU_AZURE_T4_ENABLED","value":"true"},
             {"name":"GPU_PROVIDER_PRIORITY","value":"local,azure_t4"},
             {"name":"GPU_PROVIDER_CAPACITIES","value":"local=1,azure_t4=1"},
             {"name":"GPU_SCHEDULER_POLL_SECONDS","value":"10"},

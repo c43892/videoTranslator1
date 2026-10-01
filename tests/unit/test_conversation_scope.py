@@ -28,12 +28,21 @@ def test_complaint_preserves_existing_draft(client,container):
     assert feedback['status']=='draft' and not feedback.get('job_id')
 
 
-@pytest.mark.parametrize('message', ['翻译成法语', '法语', '改成日语', 'Translate this video into French', 'Actually make it French'])
+@pytest.mark.parametrize('message', ['翻译成法语', '法语', '改成德语', 'Translate this video into French', 'Actually make it French'])
 def test_unsupported_target_explained_even_without_ai(message):
     result = GuidedInterpreter().interpret(message, {'locale':'zh','explicit_locale':'zh'})
     assert result.target_language == 'unsupported'
-    assert '中文或英文' in result.reply
+    assert '日语' in result.reply and '阿拉伯语' in result.reply
     assert result.intent == 'product'
+
+
+@pytest.mark.parametrize(('message', 'code'), [
+    ('翻译成日语', 'ja'), ('改成西班牙语', 'es'), ('请用阿拉伯语配音', 'ar'),
+    ('Dub this video into Japanese', 'ja'), ('Make it Spanish', 'es'), ('Translate to Arabic', 'ar'),
+])
+def test_new_indextts25_targets_are_supported_without_ai(message, code):
+    result = GuidedInterpreter().interpret(message, {'locale':'zh','explicit_locale':'zh'})
+    assert result.target_language == code
 
 
 @pytest.mark.parametrize('message', ['把法语视频翻译成英文', 'Translate this French video into English'])
@@ -52,7 +61,7 @@ def test_guided_mode_politely_declines_unrelated_requests(message):
 def test_capability_question_does_not_clear_current_target():
     result = GuidedInterpreter().interpret('支持法语吗？', {'locale':'zh','target_language':'en'})
     assert result.intent == 'product' and not result.target_language
-    assert '中文或英文' in result.reply
+    assert '日语' in result.reply and '阿拉伯语' in result.reply
 
 
 def test_ai_outage_still_explains_french_and_preserves_explicit_ui_language(monkeypatch):
@@ -61,7 +70,7 @@ def test_ai_outage_still_explains_french_and_preserves_explicit_ui_language(monk
     result = DeepSeekConversationInterpreter('test','test','https://example.invalid').interpret(
         '翻译成法语', {'locale':'en','explicit_locale':'en'})
     assert result.mode == 'fallback' and result.target_language == 'unsupported'
-    assert 'Chinese or English' in result.reply
+    assert 'Japanese' in result.reply and 'Arabic' in result.reply
 
 
 def test_ai_off_topic_classification_cannot_change_task_slots(monkeypatch):
@@ -83,7 +92,7 @@ def test_unsupported_and_off_topic_messages_do_not_charge_or_submit(client,conta
     assert '暂不提供闲聊' in refused['messages'][-1]['text']
     changed=edit(client,refused,text='改成法语')
     assert not changed['ready'] and changed['target_language']==''
-    assert '中文或英文' in changed['messages'][-1]['text']
+    assert '日语' in changed['messages'][-1]['text']
     from videotranslator.domain.models import Job,LedgerEntry
     with container.store.transaction() as tx:
         assert not tx.query(Job) and not tx.query(LedgerEntry)

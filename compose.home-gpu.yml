@@ -28,6 +28,8 @@ services:
       GPU_AGENT_SERVER_URL: ${GPU_AGENT_SERVER_URL:-https://vidyi.cc}
       GPU_WORKER_TOKEN: ${GPU_WORKER_TOKEN:?Set a dedicated GPU_WORKER_TOKEN}
       GPU_AGENT_TTS_URL: http://tts:8001
+      GPU_PROVIDER_ID: ${GPU_PROVIDER_ID:-}
+      GPU_PROVIDER_TYPE: ${GPU_PROVIDER_TYPE:-local}
     volumes:
       - task-data:/data
     depends_on:

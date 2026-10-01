@@ -65,7 +65,7 @@ def install_conversation_routes(app, container, identity_dependency, http_error)
                 "payment_providers": list(container.gateways) if container.settings.auth_mode != "demo" and container.settings.profile != "test" else [],
                 **public_price(container.funding.pricing.current()),
                 "max_upload_bytes": container.settings.max_upload_bytes,
-                "target_languages": ["zh", "en"]}
+                "target_languages": ["zh", "en", "ja", "es", "ar"]}
 
     @app.get("/api/v1/chat/youtube-availability")
     def youtube_availability():

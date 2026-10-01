@@ -99,7 +99,7 @@ class ConversationService:
             if choice != "target" and target in {"unsupported", "unclear"}:
                 draft.target_language, target = "", ""
             if target:
-                if target not in {"zh", "en"}:
+                if target not in {"zh", "en", "ja", "es", "ar"}:
                     raise ValueError("unsupported_target")
                 draft.target_language = target
             if choice == "locale":

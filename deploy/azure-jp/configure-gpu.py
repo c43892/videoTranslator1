@@ -63,8 +63,9 @@ GRANT SELECT ON gpu_runnable_work TO gpu_scaler;
         raise ValueError('Use the immutable project engine image digest')
     template['containers'][1]['image'] = engine_image
     env = dotenv_values(ROOT/'secrets/azure-jp/engine.env')
-    for name in ('DEEPSEEK_MODEL','DEEPSEEK_BASE_URL','SEPARATION_PROVIDER','DEMUCS_MODEL','DEMUCS_SEGMENT_SECONDS','TTS_MAX_TEXT_TOKENS'):
+    for name in ('DEEPSEEK_MODEL','DEEPSEEK_BASE_URL','SEPARATION_PROVIDER','DEMUCS_MODEL','DEMUCS_SEGMENT_SECONDS','TTS_MAX_TEXT_TOKENS','GPU_AZURE_T4_ENABLED'):
         if name in env:
+            template['containers'][1]['env'] = [item for item in template['containers'][1]['env'] if item['name'] != name]
             template['containers'][1]['env'].append({'name': name, 'value': env[name]})
     body_path = ROOT/'secrets/azure-jp/gpu-business.json'
     body_path.write_text(json.dumps(body), encoding='utf-8')

@@ -1,4 +1,4 @@
-import {copy, normalizeLocale} from './i18n.js?v=20260930-local-demo-free';
+import {copy, normalizeLocale} from './i18n.js?v=20260930-indextts25-languages';
 import {createLanguagePicker} from './language-picker.js?v=20260923-stripe-env';
 import {createAccount} from './account.js?v=20260930-local-demo-free';
 import {createHistory, progressStageText, queueMessageKey} from './history.js?v=20260930-local-demo-free';

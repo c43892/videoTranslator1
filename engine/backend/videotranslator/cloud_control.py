@@ -21,8 +21,9 @@ from sqlalchemy.orm import Mapped, mapped_column
 from .config import settings
 from .db import Base, Job, User, Session, engine, init_db
 from .gpu_scheduler import (AZURE_PROVIDER, LOCAL_PROVIDER, always_available_providers,
-                            provider_capacities, provider_priority)
+                            provider_capacities, provider_priority, provider_enabled)
 from .storage import LocalStorage
+from .gpu_registry import provider_status
 
 ACTIVE = ('queued', 'provisioning', 'running', 'cancel_requested')
 DONE = ('completed', 'completed_with_warnings')
@@ -54,7 +55,7 @@ class Spec(BaseModel):
     input_uri: str = Field(min_length=7, max_length=1500)
     output_uri: str = Field(min_length=7, max_length=1500)
     duration_ms: int = Field(gt=0, le=7200000)
-    target_language: str = Field(pattern='^(en|zh)$')
+    target_language: str = Field(pattern='^(en|zh|ja|es|ar)$')
     source_language: str | None
     processing_profile: str = Field(max_length=100)
     duration_policy_version: str = Field(max_length=100)
@@ -73,7 +74,7 @@ def initialize():
     init_db()
     if engine.dialect.name == 'postgresql':
         legacy_reverse = os.getenv('REVERSE_GPU_ENABLED', 'false').lower() == 'true'
-        mode = os.getenv('GPU_PROVIDER_MODE') or ('local_only' if legacy_reverse else 'azure_t4')
+        mode = os.getenv('GPU_PROVIDER_MODE') or ('local_only' if legacy_reverse else 'hybrid')
         if mode not in ('azure_t4', 'local_only', 'hybrid'):
             raise RuntimeError('GPU_PROVIDER_MODE must be azure_t4, local_only, or hybrid')
         priority = provider_priority()
@@ -83,20 +84,25 @@ def initialize():
             raise RuntimeError('The current deployment requires local and azure_t4 providers')
         active = """j.status IN ('queued','provisioning','running','cancel_requested')
                 AND e.deadline > EXTRACT(EPOCH FROM NOW())"""
-        if mode == 'azure_t4':
-            predicate = active
-        elif mode == 'local_only':
+        if mode == 'local_only':
             predicate = 'FALSE'
+        elif not provider_enabled(AZURE_PROVIDER):
+            # Drain assigned attempts, but never wake T4 for unassigned queue work.
+            predicate = active + f" AND e.gpu_provider = '{AZURE_PROVIDER}'"
         else:
             availability = []
             for provider in priority[:priority.index(AZURE_PROVIDER)]:
+                if not provider_enabled(provider):
+                    continue
                 escaped = provider.replace("'", "''")
-                if provider == LOCAL_PROVIDER:
+                if provider in always_available:
+                    online = f"""(NOT EXISTS (SELECT 1 FROM gpu_providers dp WHERE dp.id = '{escaped}')
+                        OR EXISTS (SELECT 1 FROM gpu_providers dp WHERE dp.id = '{escaped}'
+                        AND dp.ready = 1 AND dp.last_seen > EXTRACT(EPOCH FROM NOW()) - 30))"""
+                elif provider == LOCAL_PROVIDER:
                     online = """EXISTS (SELECT 1 FROM gpu_workers w
-                        WHERE w.ready = 1
+                        WHERE w.ready = 1 AND w.provider_id = ''
                           AND w.last_seen > EXTRACT(EPOCH FROM NOW()) - 30)"""
-                elif provider in always_available:
-                    online = 'TRUE'
                 else:
                     online = f"""EXISTS (SELECT 1 FROM gpu_provider_workers pw
                         WHERE pw.provider = '{escaped}' AND pw.ready = 1
@@ -107,6 +113,15 @@ def initialize():
                      ('queued','provisioning','running','cancel_requested')
                      AND ae.deadline > EXTRACT(EPOCH FROM NOW())) < {capacities[provider]})""")
             predecessors_busy = ' AND '.join(availability) or 'TRUE'
+            # Registration is dynamic: the scaler must see providers added after
+            # this view was created, not only the deployment's static name list.
+            predecessors_busy += """ AND NOT EXISTS (
+                SELECT 1 FROM gpu_providers rp WHERE rp.provider_type <> 't4'
+                AND rp.ready = 1 AND rp.last_seen > EXTRACT(EPOCH FROM NOW()) - 30
+                AND NOT EXISTS (SELECT 1 FROM cloud_executions re JOIN jobs rj ON rj.id=re.generation
+                    WHERE re.gpu_provider = rp.id AND rj.status IN
+                    ('queued','provisioning','running','cancel_requested')
+                    AND re.deadline > EXTRACT(EPOCH FROM NOW())))"""
             predicate = active + f""" AND (
                 e.gpu_provider = '{AZURE_PROVIDER}'
                 OR (e.gpu_provider = '' AND j.status = 'queued' AND {predecessors_busy}))"""
@@ -117,6 +132,8 @@ def initialize():
                 ready INTEGER NOT NULL DEFAULT 0,
                 activity_seq INTEGER NOT NULL DEFAULT 0
             )"""))
+            db.execute(text("""ALTER TABLE gpu_workers
+                ADD COLUMN IF NOT EXISTS provider_id VARCHAR(32) NOT NULL DEFAULT ''"""))
             db.execute(text("""ALTER TABLE cloud_executions
                 ADD COLUMN IF NOT EXISTS gpu_provider VARCHAR(32) NOT NULL DEFAULT ''"""))
             db.execute(text("""CREATE TABLE IF NOT EXISTS gpu_provider_workers (
@@ -168,6 +185,12 @@ def health():
     with Session() as db:
         db.execute(text('SELECT 1'))
     return {'ready': True}
+
+
+@app.get('/v1/gpu-providers')
+def gpu_providers():
+    with Session() as db:
+        return {'providers': provider_status(db)}
 
 
 @app.get('/v1/jobs/{identifier}')

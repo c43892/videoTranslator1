@@ -46,10 +46,46 @@ Each host runs both supported GPU operations and has a unique random token. The 
 list and persists workers and tasks in PostgreSQL. A ready host claims one task at a
 time. A task lease lasts 45 seconds and is renewed by heartbeats every 5 seconds.
 Expired leases return to the queue; a former owner cannot publish a result after
-another host claims it. More than one host can register. Registered agents behind
-the same `local` provider currently form one provider slot and provide failover;
-independent concurrent GPU services should receive distinct provider names in the
-ordered provider list.
+another host claims it. Each upgraded agent registers an independent provider ID
+and reports type `local`, `cloud`, or `t4`. Two local GPUs are two separate slots,
+not one shared failover slot. Legacy agents without an ID retain the old shared
+`local` behavior until upgraded.
+
+## Dynamic provider registration (local implementation, 2026-09-30)
+
+There is no fixed provider-count limit. Each provider is one independent serial
+GPU service with a unique credential. Set `GPU_PROVIDER_ID` (lowercase letters,
+digits and underscores, maximum 32 characters) and `GPU_PROVIDER_TYPE` on its
+agent. If ID is omitted, the agent derives a stable ID from its credential. Add
+that credential to the broker's `GPU_WORKER_TOKENS`; registration is authenticated,
+not open to arbitrary visitors. One credential owns one immutable ID/type, and
+duplicate IDs are rejected rather than silently replacing another GPU.
+
+Agents call `POST /api/v1/gpu-workers/register`, then heartbeat every five seconds.
+The reverse CPU dispatcher discovers new IDs automatically and supervises one
+CPU worker process per provider. No edit to `GPU_PROVIDER_PRIORITY` or extra
+manually provisioned CPU worker is required for another outbound GPU. Existing
+explicit priority entries still order matching IDs; additional IDs use stable
+ID ordering. Every provider reporting type `t4` sorts after all non-T4 providers,
+regardless of its ID or registration order. The Azure scale-to-zero view also
+checks dynamically registered non-T4 providers before waking Azure T4.
+
+`GET /api/v1/gpu-providers` exposes ID, type, transport, online/busy state and
+last heartbeat to authenticated admins (authenticated users in local demo mode).
+Credentials and internal owner hashes are not returned. The local Web App proxies
+only the worker protocol routes to its private broker; production Caddy already
+provides that gateway. Heartbeats older than 30 seconds make a provider offline.
+Each video and all its Demucs/tokenization/IndexTTS audio tasks stay pinned to one
+provider ID. Expired task leases can only be reclaimed by that provider; a different
+GPU cannot steal a reference/audio task. Lost providers fail the original attempt
+closed, and user retry gets a new assignment.
+
+Direct CPU/GPU deployments can use any unique `GPU_PROVIDER` plus
+`GPU_PROVIDER_TYPE`; their worker automatically records its identity and heartbeat.
+Web admission limits (`MAX_ACTIVE_GPU_JOBS`, per-user limits and budgets) remain
+separate policy controls: raise configured concurrency when enabling more GPUs,
+without disabling budget or billing checks. This implementation is activated and
+tested locally; it does not update the already deployed cloud service.
 
 ## Provider priority and fallback
 
@@ -57,20 +93,29 @@ ordered provider list.
 provider order. The production defaults are `GPU_PROVIDER_PRIORITY=local,azure_t4`
 and `GPU_PROVIDER_CAPACITIES=local=1,azure_t4=1`. The scheduler examines providers
 in that order for the oldest unassigned job: it assigns local when a recent ready
-agent exists and the local slot is free; otherwise it assigns Azure T4 when its slot
-is free. When all slots are busy or offline, the job remains unassigned and workers
+agent exists and the local slot is free. Azure T4 is enabled by default with
+`GPU_AZURE_T4_ENABLED=true` and is always moved to the end of the provider order.
+Every other configured provider is considered first, including additional local
+providers. T4 claims new work only when all preceding slots are busy or unavailable.
+Engine-control defaults to `GPU_PROVIDER_MODE=hybrid` so the scale-to-zero trigger
+uses the same rule. Set `GPU_AZURE_T4_ENABLED=false` consistently on control and
+worker services to explicitly disable new T4 assignments.
+When all enabled slots are busy or offline, the job remains unassigned and workers
 check again every `GPU_SCHEDULER_POLL_SECONDS=10` seconds. The T4 KEDA trigger also
 uses a 10-second polling interval, so a scale-to-zero worker follows the same cadence.
 
 Each provider has a stable, separate PostgreSQL advisory lock, so one local video
 and one T4 video may run concurrently. A job receives a permanent `gpu_provider`
-assignment when claimed. Assigned Azure work remains visible to the scaler until
+assignment when claimed. Disabling T4 blocks new assignments; already assigned Azure
+work remains visible to the scaler until
 terminal, preventing scale-down mid-job. Provider selection is never changed during
 an attempt: a provider failure fails that attempt closed and a user retry re-enters
-the ordered queue. To add another independent GPU service, give its worker a unique
-provider name, insert that name into `GPU_PROVIDER_PRIORITY`, set its capacity, and
-configure either a provider heartbeat or scale-to-zero availability. Do not assign
-capacity greater than the number of independently running workers for that provider.
+the ordered queue. Registered services use one slot per ID; add another ID and
+credential for another GPU, rather than inflating one provider's capacity.
+
+The standalone local Compose stack sets `GPU_PROVIDER=local` and
+`GPU_PROVIDER_ALWAYS_AVAILABLE=local` because its worker talks directly to the
+co-located GPU service. Reverse GPU deployments continue to use agent heartbeats.
 
 ## Private configuration
 

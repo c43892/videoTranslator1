@@ -163,9 +163,11 @@ def services(user=Depends(current_user)):
     return {'missing_keys': cfg.missing_keys(), 'tts': state,
             'providers': {'separation': cfg.separation_label(), 'transcription': cfg.transcription_model(),
                           'diarization': 'disabled',
-                          'translation': cfg.deepseek_model, 'synthesis': 'IndexTTS2 · 本地 GPU'},
+                          'translation': cfg.translation_label(), 'synthesis': 'IndexTTS2 · 本地 GPU'},
             'limits': {'max_upload_mb': cfg.max_upload_mb, 'max_video_seconds': cfg.max_video_seconds},
-            'target_languages': [{'code': 'zh', 'name': '简体中文'}, {'code': 'en', 'name': 'English'}]}
+            'target_languages': [{'code': 'zh', 'name': '简体中文'}, {'code': 'en', 'name': 'English'},
+                                 {'code': 'ja', 'name': '日本語'}, {'code': 'es', 'name': 'Español'},
+                                 {'code': 'ar', 'name': 'العربية'}]}
 
 @app.get('/api/jobs')
 def jobs(user=Depends(current_user)):
@@ -175,8 +177,8 @@ def jobs(user=Depends(current_user)):
 @app.post('/api/jobs', status_code=201)
 async def create_job(file: UploadFile = File(...), target_language: str = Form(...),
                      terminology: str = Form(''), user=Depends(current_user)):
-    if target_language not in ('en', 'zh'):
-        raise HTTPException(422, 'IndexTTS2 第一版支持中文与英文配音')
+    if target_language not in ('en', 'zh', 'ja', 'es', 'ar'):
+        raise HTTPException(422, 'IndexTTS2 2.5 支持中文、英文、日语、西班牙语和阿拉伯语配音')
     if len(terminology) > 10000:
         raise HTTPException(422, '术语表过长')
     filename = Path((file.filename or 'video').replace('\\', '/')).name[:200]
@@ -229,7 +231,7 @@ async def create_job(file: UploadFile = File(...), target_language: str = Form(.
 
 class YouTubeInput(BaseModel):
     url: str = Field(min_length=1, max_length=2048)
-    target_language: str = Field(pattern='^(en|zh)$')
+    target_language: str = Field(pattern='^(en|zh|ja|es|ar)$')
     terminology: str = Field(default='', max_length=10000)
 
 @app.post('/api/jobs/youtube', status_code=201)

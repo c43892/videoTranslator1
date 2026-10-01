@@ -50,6 +50,7 @@ def test_agent_completes_speech_and_demucs_tasks(monkeypatch, tmp_path):
         if request.url.path == '/health':
             result = {'status': 'ready'}
         elif request.url.path == '/synthesize':
+            assert body['language'] == 'es'
             output = tmp_path / body['output']
             output.parent.mkdir(parents=True, exist_ok=True)
             output.write_bytes(wav())
@@ -89,7 +90,7 @@ def test_agent_completes_speech_and_demucs_tasks(monkeypatch, tmp_path):
 
         # The two internal requests create durable tasks without awaiting a GPU.
         from videotranslator.gpu_broker import _create
-        _create('synthesize', {'text': 'hello',
+        _create('synthesize', {'text': 'hello', 'language': 'es',
             'inputs': {'speaker': 'jobs/agent-test/speaker.wav',
                        'emotion': 'jobs/agent-test/emotion.wav'},
             'outputs': {'audio': 'jobs/agent-test/result.wav'}}, 60)

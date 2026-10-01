@@ -10,11 +10,14 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 from dataclasses import asdict
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
+from fastapi.responses import StreamingResponse
+from starlette.background import BackgroundTask
 import httpx
 from pydantic import BaseModel, Field
 
@@ -120,6 +123,45 @@ def create_app(container: Container) -> FastAPI:
         if identity.uid not in container.settings.admin_user_ids:
             raise HTTPException(403, detail={"code": "forbidden"})
         return identity
+
+    @app.api_route('/api/v1/gpu-workers/{path:path}', methods=['GET', 'POST', 'PUT'])
+    async def gpu_worker_gateway(path: str, request: Request):
+        """Outbound agents authenticate at the broker; never accept user tokens."""
+        import re
+        if not re.fullmatch(r'(register|heartbeat|claim|result|fail|tasks/[a-zA-Z0-9-]+/(inputs|outputs)/[a-z]+)', path):
+            raise HTTPException(404)
+        base = os.getenv('GPU_BROKER_URL', '').rstrip('/')
+        if not base:
+            raise HTTPException(503, 'GPU registration is not configured')
+        headers = {key: value for key, value in request.headers.items()
+                   if key.lower() in ('authorization', 'content-type', 'content-length', 'x-gpu-lease')}
+        client = httpx.AsyncClient(timeout=httpx.Timeout(30, read=120, write=120))
+        try:
+            remote = await client.send(client.build_request(request.method,
+                base + '/api/v1/gpu-workers/' + path, headers=headers, content=request.stream()), stream=True)
+        except BaseException:
+            await client.aclose()
+            raise
+        async def close():
+            await remote.aclose()
+            await client.aclose()
+        return StreamingResponse(remote.aiter_bytes(), status_code=remote.status_code,
+            headers={key: value for key, value in remote.headers.items()
+                     if key.lower() in ('content-type', 'content-length')}, background=BackgroundTask(close))
+
+    @app.get('/api/v1/gpu-providers')
+    def registered_gpu_providers(identity=Depends(verified_identity)):
+        if container.settings.auth_mode != 'demo' and identity.uid not in container.settings.admin_user_ids:
+            raise HTTPException(403)
+        base = os.getenv('ENGINE_CONTROL_URL', '').rstrip('/')
+        token = os.getenv('ENGINE_CONTROL_TOKEN', '')
+        if not base or not token:
+            raise HTTPException(503, 'Private engine is not configured')
+        response = httpx.get(base + '/v1/gpu-providers',
+                            headers={'Authorization': 'Bearer ' + token}, timeout=10)
+        if response.is_error:
+            raise HTTPException(503, 'GPU registry is unavailable')
+        return response.json()
 
     @app.get("/api/v1/admin/pricing")
     def admin_pricing(identity=Depends(admin_identity)):

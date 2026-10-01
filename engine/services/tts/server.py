@@ -1,5 +1,7 @@
 """Private GPU service. Only media-relative paths cross the container boundary."""
 import os
+import re
+import shutil
 import threading
 import time
 import warnings
@@ -12,11 +14,24 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 ROOT = Path(os.getenv('STORAGE_ROOT', '/data')).resolve()
-MODEL_DIR = Path(os.getenv('MODEL_DIR', '/models/checkpoints'))
-STATE = {'status': 'loading', 'detail': 'Downloading IndexTTS2 weights', 'model': 'IndexTTS2 2.0.0'}
+MODEL_DIR = Path(os.getenv('MODEL_DIR', '/models/checkpoints-2.5'))
+MODEL_REPO = 'IndexTeam/IndexTTS-2.5'
+MODEL_REVISION = 'c39ce5ba981572cb187443877ff559dfb246ce63'
+STATE = {'status': 'loading', 'detail': 'Downloading IndexTTS2.5 weights', 'model': 'IndexTTS2 2.5.0'}
 LOCK = threading.Lock()
 MODEL = None
 MAX_TOKENS = int(os.getenv('TTS_MAX_TEXT_TOKENS', '120'))
+
+
+def inference_language(language: str, text: str) -> str:
+    """Map the product's language codes to the explicit IndexTTS-2.5 tokens."""
+    if language in {'en', 'zh', 'ja', 'es', 'ar'}:
+        return language
+    if re.search(r'[\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff]', text):
+        return 'ar'
+    if re.search(r'[\u3040-\u30ff]', text):
+        return 'ja'
+    return 'zh' if re.search(r'[\u3400-\u4dbf\u4e00-\u9fff]', text) else 'en'
 
 
 def media_path(key: str) -> Path:
@@ -29,24 +44,36 @@ def media_path(key: str) -> Path:
 def load_model():
     global MODEL
     try:
+        STATE.update(status='loading', detail='Downloading IndexTTS2.5 weights')
         from huggingface_hub import snapshot_download
         MODEL_DIR.mkdir(parents=True, exist_ok=True)
-        snapshot_download('IndexTeam/IndexTTS-2', revision='740dcaff396282ffb241903d150ac011cd4b1ede',
+        snapshot_download(MODEL_REPO, revision=MODEL_REVISION,
                           local_dir=str(MODEL_DIR), max_workers=2,
-                          allow_patterns=['*.pth', '*.pt', '*.model', '*.yaml', '*.json', 'qwen0.6bemo4-merge/*'])
+                          allow_patterns=['*.pth', '*.pt', '*.yaml', '*.tiktoken'])
         STATE['detail'] = 'Loading models onto GPU'
         # Upstream sets HF_HUB_CACHE relative to its cwd; put that cache on our persistent volume.
         os.chdir('/models')
-        from indextts.infer_v2 import IndexTTS2
+        w2v_dir = MODEL_DIR / 'hf_cache' / 'w2v-bert-2.0'
+        w2v_weights = (w2v_dir / 'model.safetensors', w2v_dir / 'pytorch_model.bin')
+        if w2v_dir.exists() and not any(path.is_file() for path in w2v_weights):
+            # A stopped first boot can leave only metadata and .incomplete files. Upstream checks
+            # merely whether the directory exists, so remove that partial directory before retrying.
+            shutil.rmtree(w2v_dir)
+        STATE['detail'] = 'Downloading IndexTTS2.5 auxiliary models'
+        from indextts.utils.model_download import ensure_models_available
+        ensure_models_available(str(MODEL_DIR))
+        STATE['detail'] = 'Loading models onto GPU'
+        from indextts.infer_v2_5 import IndexTTS2
         import torch
         if not torch.cuda.is_available():
             raise RuntimeError('CUDA is unavailable inside the TTS container')
+        use_bf16 = torch.cuda.is_bf16_supported()
         MODEL = IndexTTS2(cfg_path=str(MODEL_DIR / 'config.yaml'), model_dir=str(MODEL_DIR),
-                          device='cuda:0', use_fp16=True, use_cuda_kernel=False, use_deepspeed=False)
-        # This product uses original-segment audio emotion prompts, never Qwen text emotion.
-        MODEL.qwen_emo.model.to('cpu')
+                          device='cuda:0', use_bf16=use_bf16, use_cuda_kernel=False,
+                          use_deepspeed=False, use_qwen_emo=False)
         torch.cuda.empty_cache()
-        STATE.update(status='ready', detail=torch.cuda.get_device_name(0))
+        STATE.update(status='ready', detail=torch.cuda.get_device_name(0),
+                     precision='bf16' if use_bf16 else 'fp32')
     except Exception as exc:
         import traceback
         traceback.print_exc()
@@ -102,7 +129,7 @@ def health():
         from fastapi.responses import JSONResponse
         return JSONResponse(STATE, status_code=503)
     return {**STATE, 'max_text_tokens_per_segment': MAX_TOKENS, 'max_text_characters': 5000,
-            'max_reference_seconds': 15, 'languages': ['en', 'zh']}
+            'max_reference_seconds': 15, 'languages': ['en', 'zh', 'ja', 'es', 'ar']}
 
 
 class Texts(BaseModel):
@@ -119,6 +146,7 @@ def tokenize(body: Texts):
 
 class Speech(BaseModel):
     text: str = Field(min_length=1, max_length=5000)
+    language: str = Field(default='auto', pattern='^(auto|en|zh|ja|es|ar)$')
     speaker_audio: str
     emotion_audio: str
     output: str
@@ -153,7 +181,8 @@ def synthesize(body: Speech):
                 for chunk_tokens in dict.fromkeys([MAX_TOKENS, max(20, MAX_TOKENS//2)]):
                     try:
                         MODEL.infer(spk_audio_prompt=str(speaker), emo_audio_prompt=str(emotion), text=body.text,
-                                    output_path=str(temporary), emo_alpha=1.0, use_random=False,
+                                    output_path=str(temporary), lang=inference_language(body.language, body.text),
+                                    emo_alpha=1.0, use_random=False,
                                     max_text_tokens_per_segment=chunk_tokens, num_beams=1, verbose=False)
                         break
                     except RuntimeWarning:

@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     diarization_model: str = 'gpt-4o-transcribe-diarize'
     deepseek_base_url: str = 'https://api.deepseek.com'
     deepseek_model: str = 'deepseek-flash'
+    translation_provider: Literal['openai', 'deepseek'] = 'openai'
+    translation_model: str = 'gpt-6-luna'
+    translation_timeout_seconds: float = Field(default=600, ge=60, le=1800)
+    translation_max_output_tokens: int = Field(default=65536, ge=1024, le=128000)
     tts_url: str = 'http://tts:8001'
     tts_tokenize_timeout_seconds: float = Field(default=120, ge=1, le=1800)
     tts_max_text_tokens: int = 120
@@ -41,6 +45,8 @@ class Settings(BaseSettings):
 
     def missing_keys(self):
         required = ['ELEVENLABS_API_KEY' if self.transcription_provider == 'scribe' else 'OPENAI_API_KEY', 'DEEPSEEK_API_KEY']
+        if self.translation_provider == 'openai' and 'OPENAI_API_KEY' not in required:
+            required.append('OPENAI_API_KEY')
         if self.separation_provider == 'mvsep':
             required.insert(0, 'MVSEP_API_KEY')
         return [name for name in required
@@ -52,13 +58,19 @@ class Settings(BaseSettings):
     def transcription_model(self):
         return self.scribe_model if self.transcription_provider == 'scribe' else self.whisper_model
 
+    def translation_label(self):
+        return self.translation_model if self.translation_provider == 'openai' else self.deepseek_model
+
     def pipeline_config(self):
-        return {k: getattr(self, k) for k in (
+        config = {k: getattr(self, k) for k in (
             'separation_provider', 'demucs_model', 'demucs_segment_seconds',
             'transcription_provider', 'scribe_model', 'elevenlabs_base_url',
             'mvsep_base_url', 'openai_base_url', 'whisper_model', 'diarization_model', 'deepseek_base_url', 'deepseek_model',
             'tts_max_text_tokens', 'speaker_reference_min_seconds', 'speaker_reference_max_seconds',
-            'emotion_reference_max_seconds', 'max_speedup')}
+            'emotion_reference_max_seconds', 'max_speedup',
+            'translation_provider', 'translation_model', 'translation_max_output_tokens')}
+        config['translation_strategy'] = 'whole-transcript-v1'
+        return config
 
 @lru_cache
 def settings():

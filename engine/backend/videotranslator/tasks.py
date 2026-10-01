@@ -7,7 +7,7 @@ from .config import settings
 from .db import Session, Job, engine, init_db
 from .domain import Cancelled, NeedsReview
 from .storage import LocalStorage
-from .providers import MVSeparator, DeepSeekTranslator, IndexSynthesizer
+from .providers import MVSeparator, create_translator, IndexSynthesizer
 from .scribe import create_transcriber
 from .pipeline import Pipeline
 from .punctuation import DeepSeekPunctuator
@@ -113,7 +113,7 @@ def process(job_id):
         if source and source.get('title'):
             update(job_id, filename=source['title']+'.mp4')
         pipeline = Pipeline(cfg, storage, create_separator(cfg, storage), create_transcriber(cfg, storage, check_cancel=check_cancel),
-                            DeepSeekTranslator(cfg), IndexSynthesizer(cfg), DeepSeekPunctuator(cfg))
+                            create_translator(cfg), IndexSynthesizer(cfg), DeepSeekPunctuator(cfg))
         outputs = pipeline.run(job, report, check_cancel)
         with Session.begin() as db:
             current = db.get(Job, job_id, with_for_update=True)

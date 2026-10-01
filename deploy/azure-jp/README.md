@@ -2,8 +2,11 @@
 
 The hybrid cloud CPU / outbound home GPU architecture is live as of 2026-09-29 and
 is described in [the reverse GPU deployment guide](../../docs/REVERSE_GPU_DEPLOYMENT.md).
-The local RTX provider has priority. The T4 Container App remains active at min 0
-and wakes for the next FIFO job when local is offline or its provider slot is busy.
+Local and other configured providers have priority. T4 is enabled by default
+(`GPU_AZURE_T4_ENABLED=true`) and always runs last; it takes new work only when all
+earlier providers are busy or unavailable. New CPU configurations default to hybrid
+mode so the scaler follows the same order. This repository default does not change
+already deployed cloud settings.
 
 YouTube imports can now use an outbound-only Windows home worker. See
 [home worker deployment and validation](../../docs/HOME_DOWNLOAD_WORKER.md) and
@@ -355,3 +358,12 @@ The final revision uses engine digest
 returned to zero replicas while idle. The previous production digest
 `sha256:4cf5c555d6f7019c9a44754ea08824cfe356d6cc1bdbaead7c27d3bb6c45a0c8` remains
 available in ACR for rollback.
+# Dynamic GPU providers
+
+The reverse CPU worker now discovers authenticated provider registrations and
+starts an independent CPU supervisor per provider ID. Agents report
+`GPU_PROVIDER_ID` and `GPU_PROVIDER_TYPE=local|cloud|t4`; all T4 types remain last.
+Provision one broker credential per GPU service and add it to `GPU_WORKER_TOKENS`.
+Additional registered IDs require no static provider-list edit. Keep Web App
+concurrency and budget settings consistent with the desired pool capacity.
+These source changes are not an automatic cloud rollout.

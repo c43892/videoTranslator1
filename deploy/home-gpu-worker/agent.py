@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import hashlib
 import shutil
 import subprocess
 import threading
@@ -38,6 +39,8 @@ class Agent:
         self.lock = threading.Lock()
         self.cancelled = threading.Event()
         self.stopping = threading.Event()
+        self.provider_id = os.getenv('GPU_PROVIDER_ID') or 'gpu_' + hashlib.sha256(TOKEN.encode()).hexdigest()[:24]
+        self.provider_type = os.getenv('GPU_PROVIDER_TYPE', 'local')
 
     def request(self, method, path, **kwargs):
         response = self.remote.request(method, PREFIX + path, **kwargs)
@@ -56,6 +59,7 @@ class Agent:
             with self.lock:
                 active = self.active
             body = {'ready': self.ready(), 'gpu_active': bool(active) and gpu_active(),
+                    'provider_id': self.provider_id, 'provider_type': self.provider_type,
                     'active': [{'task_id': active['id'], 'lease_token': active['lease_token']}] if active else []}
             try:
                 response = self.request('POST', '/heartbeat', json=body).json()
@@ -105,6 +109,7 @@ class Agent:
             elif task['kind'] == 'synthesize':
                 output = directory / 'result.wav'
                 response = self.local.post('/synthesize', json={'text': task['payload']['text'],
+                    'language': task['payload'].get('language', 'auto'),
                     'speaker_audio': inputs['speaker'], 'emotion_audio': inputs['emotion'],
                     'output': output.relative_to(ROOT).as_posix()})
                 response.raise_for_status()
@@ -133,6 +138,8 @@ class Agent:
 
     def run(self):
         ROOT.mkdir(parents=True, exist_ok=True)
+        self.request('POST', '/register', json={'provider_id': self.provider_id,
+                                              'provider_type': self.provider_type})
         threading.Thread(target=self.heartbeat_loop, name='gpu-heartbeat', daemon=True).start()
         while not self.stopping.is_set():
             try:
