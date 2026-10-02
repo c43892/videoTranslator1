@@ -1,5 +1,9 @@
 # Cloud CPU and outbound GPU agents
 
+For new GPU hosts and switching a host between the local Demo and the cloud provider,
+use [Local deployment modes](LOCAL_DEPLOYMENT_MODES.md). The unified entry point stops
+the opposite stack before starting a GPU and preserves the model/data volumes.
+
 ## Deployed status (2026-09-29)
 
 The Japan East CPU VM serves `https://vidyi.cc` with Studio, engine control, the

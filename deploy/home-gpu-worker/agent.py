@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 import httpx
+from runtime_status import write_status
 
 PREFIX = '/api/v1/gpu-workers'
 ROOT = Path(os.environ.get('GPU_AGENT_DATA_ROOT', '/data')).resolve()
@@ -65,6 +66,11 @@ class Agent:
                 response = self.request('POST', '/heartbeat', json=body).json()
                 if active and active['id'] in response.get('cancelled', []):
                     self.cancelled.set()
+                try:
+                    write_status(self.provider_id, ready=body['ready'], registered=True,
+                                 acknowledged_at=time.time(), busy=bool(active))
+                except OSError as exc:
+                    print('GPU agent health status unavailable:', type(exc).__name__, flush=True)
             except (httpx.HTTPError, ValueError) as exc:
                 print('GPU heartbeat unavailable:', type(exc).__name__, flush=True)
             self.stopping.wait(5)
@@ -138,6 +144,7 @@ class Agent:
 
     def run(self):
         ROOT.mkdir(parents=True, exist_ok=True)
+        write_status(self.provider_id, ready=False, registered=False)
         self.request('POST', '/register', json={'provider_id': self.provider_id,
                                               'provider_type': self.provider_type})
         threading.Thread(target=self.heartbeat_loop, name='gpu-heartbeat', daemon=True).start()

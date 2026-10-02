@@ -1,5 +1,8 @@
 # VideoTranslator cloud image
 
+For current standalone local Demo deployment, outbound cloud GPU provider deployment,
+and switching between them on Windows/Linux, see [Local deployment modes](../docs/LOCAL_DEPLOYMENT_MODES.md).
+
 > Historical deployment path: this document describes the older single-image Azure ML workflow. For the current stable Studio/engine migration to Japan East Container Apps T4, use [the migration plan](../docs/AZURE_JAPAN_T4_MIGRATION_PLAN.md) and [resource verification record](../docs/AZURE_JAPAN_RESOURCES.md). The image, local-Whisper default, East US quota status, and “no resources created” statement below are historical; they are not the current deployment baseline.
 
 The cloud image is stored in GitHub Container Registry (GHCR), not Azure Container Registry:

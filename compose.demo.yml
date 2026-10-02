@@ -1,0 +1,21 @@
+# Apply after compose.local-gpu.yml for the standalone, free local Demo.
+services:
+  studio:
+    environment:
+      AUTH_MODE: demo
+      PAYMENT_MODE: disabled
+      GPU_STARTS_ENABLED: 'true'
+  engine-control:
+    environment:
+      CLOUD_ACCEPT_JOBS: 'true'
+      GPU_PROVIDER_MODE: local_only
+      GPU_AZURE_T4_ENABLED: 'false'
+  engine-worker:
+    environment:
+      GPU_AZURE_T4_ENABLED: 'false'
+  engine-dispatcher:
+    environment:
+      GPU_AZURE_T4_ENABLED: 'false'
+  gpu-broker:
+    environment:
+      GPU_WORKER_TOKENS: ''

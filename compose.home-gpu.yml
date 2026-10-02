@@ -35,6 +35,12 @@ services:
     depends_on:
       tts:
         condition: service_started
+    healthcheck:
+      test: [CMD, python, /opt/gpu-agent/runtime_status.py]
+      interval: 10s
+      timeout: 5s
+      start_period: 30m
+      retries: 3
 volumes:
   task-data:
     external: true
